@@ -9,7 +9,14 @@ class ZenWorkspace extends StatelessWidget {
   final VoidCallback? onCreateChat;
   final ValueChanged<String>? onSendMessage;
 
-  const ZenWorkspace({super.key, this.selectedIndex = 0, this.chats, this.selectedChatId, this.onCreateChat, this.onSendMessage});
+  const ZenWorkspace({
+    super.key,
+    this.selectedIndex = 0,
+    this.chats,
+    this.selectedChatId,
+    this.onCreateChat,
+    this.onSendMessage,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +33,11 @@ class ZenWorkspace extends StatelessWidget {
         return Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
-            child: _ChatView(chat: chat, onSend: onSendMessage, onCreate: onCreateChat),
+            child: _ChatView(
+              chat: chat,
+              onSend: onSendMessage,
+              onCreate: onCreateChat,
+            ),
           ),
         );
       }
@@ -43,9 +54,9 @@ class ZenWorkspace extends StatelessWidget {
             'Hallo Bennet, wie geht es dir?',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade900,
-                ),
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade900,
+            ),
             maxLines: 1,
             overflow: TextOverflow.fade,
             softWrap: false,
@@ -106,7 +117,11 @@ class _ChatViewState extends State<_ChatView> {
     // scroll to bottom a bit later
     Future.delayed(const Duration(milliseconds: 120), () {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent + 80, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent + 80,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
@@ -122,8 +137,14 @@ class _ChatViewState extends State<_ChatView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(chat.title ?? 'Chat', style: Theme.of(context).textTheme.headlineSmall),
-              IconButton(onPressed: widget.onCreate, icon: const Icon(Icons.add))
+              Text(
+                chat.title ?? 'Chat',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              IconButton(
+                onPressed: widget.onCreate,
+                icon: const Icon(Icons.add),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -133,16 +154,23 @@ class _ChatViewState extends State<_ChatView> {
               itemCount: messages.length,
               itemBuilder: (context, i) {
                 final m = messages[i];
-                final bg = m.fromUser ? Theme.of(context).colorScheme.primary : Colors.grey.shade200;
+                final bg = m.fromUser
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.grey.shade200;
                 final fg = m.fromUser ? Colors.white : Colors.black87;
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8.0),
                   child: Row(
-                    mainAxisAlignment: m.fromUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+                    mainAxisAlignment: m.fromUser
+                        ? MainAxisAlignment.end
+                        : MainAxisAlignment.start,
                     children: [
                       Flexible(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: bg,
                             borderRadius: BorderRadius.circular(12),
@@ -162,7 +190,10 @@ class _ChatViewState extends State<_ChatView> {
             children: [
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(color: Colors.grey.shade300),
@@ -170,17 +201,26 @@ class _ChatViewState extends State<_ChatView> {
                   ),
                   child: Row(
                     children: [
+                      _RoundActionButton(
+                        icon: Icons.attach_file,
+                        tooltip: 'Upload file',
+                        onPressed: () {},
+                      ),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Shortcuts(
                           shortcuts: <LogicalKeySet, Intent>{
-                            LogicalKeySet(LogicalKeyboardKey.enter): const SendIntent(),
+                            LogicalKeySet(LogicalKeyboardKey.enter):
+                                const SendIntent(),
                           },
                           child: Actions(
                             actions: <Type, Action<Intent>>{
-                              SendIntent: CallbackAction<SendIntent>(onInvoke: (intent) {
-                                _send();
-                                return null;
-                              }),
+                              SendIntent: CallbackAction<SendIntent>(
+                                onInvoke: (intent) {
+                                  _send();
+                                  return null;
+                                },
+                              ),
                             },
                             child: TextField(
                               controller: _ctrl,
@@ -188,15 +228,28 @@ class _ChatViewState extends State<_ChatView> {
                               autofocus: true,
                               keyboardType: TextInputType.multiline,
                               maxLines: 3,
-                              decoration: const InputDecoration.collapsed(hintText: 'Send a message...'),
+                              decoration: const InputDecoration.collapsed(
+                                hintText: 'Send a message...',
+                              ),
                             ),
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      _RoundActionButton(icon: Icons.mic_none, tooltip: 'Voice', onPressed: () {}),
+                      _RoundActionButton(
+                        icon: Icons.mic_none,
+                        tooltip: 'Voice',
+                        onPressed: () {},
+                      ),
                       const SizedBox(width: 8),
-                      _RoundActionButton(icon: Icons.send_rounded, tooltip: 'Send', onPressed: _send, backgroundColor: Theme.of(context).colorScheme.primary, borderColor: Colors.transparent, iconColor: Colors.white),
+                      _RoundActionButton(
+                        icon: Icons.send_rounded,
+                        tooltip: 'Send',
+                        onPressed: _send,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        borderColor: Colors.transparent,
+                        iconColor: Colors.white,
+                      ),
                     ],
                   ),
                 ),
@@ -261,8 +314,10 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 940),
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 10.0,
+              ),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
                 color: Colors.white,
@@ -286,23 +341,36 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
                   Expanded(
                     child: Shortcuts(
                       shortcuts: <LogicalKeySet, Intent>{
-                        LogicalKeySet(LogicalKeyboardKey.enter): const SendIntent(),
+                        LogicalKeySet(LogicalKeyboardKey.enter):
+                            const SendIntent(),
                       },
                       child: Actions(
                         actions: <Type, Action<Intent>>{
-                          SendIntent: CallbackAction<SendIntent>(onInvoke: (intent) {
-                            // if shift is pressed, insert newline instead
-                            if (RawKeyboard.instance.keysPressed.contains(LogicalKeyboardKey.shiftLeft) || RawKeyboard.instance.keysPressed.contains(LogicalKeyboardKey.shiftRight)) {
-                              final pos = _ctrl.selection.baseOffset;
-                              final txt = _ctrl.text;
-                              final newText = txt.substring(0, pos) + '\n' + txt.substring(pos);
-                              _ctrl.text = newText;
-                              _ctrl.selection = TextSelection.collapsed(offset: pos + 1);
+                          SendIntent: CallbackAction<SendIntent>(
+                            onInvoke: (intent) {
+                              // if shift is pressed, insert newline instead
+                              if (RawKeyboard.instance.keysPressed.contains(
+                                    LogicalKeyboardKey.shiftLeft,
+                                  ) ||
+                                  RawKeyboard.instance.keysPressed.contains(
+                                    LogicalKeyboardKey.shiftRight,
+                                  )) {
+                                final pos = _ctrl.selection.baseOffset;
+                                final txt = _ctrl.text;
+                                final newText =
+                                    txt.substring(0, pos) +
+                                    '\n' +
+                                    txt.substring(pos);
+                                _ctrl.text = newText;
+                                _ctrl.selection = TextSelection.collapsed(
+                                  offset: pos + 1,
+                                );
+                                return null;
+                              }
+                              _send();
                               return null;
-                            }
-                            _send();
-                            return null;
-                          }),
+                            },
+                          ),
                         },
                         child: TextField(
                           controller: _ctrl,
@@ -378,15 +446,9 @@ class _RoundActionButton extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: backgroundColor ?? defaultBackground,
-            border: Border.all(
-              color: borderColor ?? defaultBorder,
-            ),
+            border: Border.all(color: borderColor ?? defaultBorder),
           ),
-          child: Icon(
-            icon,
-            color: iconColor ?? defaultIcon,
-            size: iconSize,
-          ),
+          child: Icon(icon, color: iconColor ?? defaultIcon, size: iconSize),
         ),
       ),
     );
