@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 class ZenSidebar extends StatefulWidget {
   final int selectedIndex;
   final ValueChanged<int>? onItemSelected;
+  final List<dynamic>? chats; // simple dynamic to avoid import here
+  final ValueChanged<String>? onChatSelected;
+  final VoidCallback? onNewChat;
 
-  const ZenSidebar({super.key, this.selectedIndex = 0, this.onItemSelected});
+  const ZenSidebar({super.key, this.selectedIndex = 0, this.onItemSelected, this.chats, this.onChatSelected, this.onNewChat});
 
   @override
   State<ZenSidebar> createState() => _ZenSidebarState();
@@ -29,6 +32,8 @@ class _ZenSidebarState extends State<ZenSidebar> {
         label: 'Notes',
       ),
     ];
+  // keep a fixed per-item height to avoid vertical shifts on hover/expand
+  final double itemHeight = 56.0;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
@@ -66,7 +71,7 @@ class _ZenSidebarState extends State<ZenSidebar> {
                       fit: FlexFit.loose,
                       child: _SidebarRevealText(
                         expanded: _hovering,
-                        maxWidth: 120,
+                        maxWidth: 100,
                         child: Padding(
                           padding: const EdgeInsets.only(left: 12.0),
                           child: Text(
@@ -86,24 +91,130 @@ class _ZenSidebarState extends State<ZenSidebar> {
               ),
             ),
             const SizedBox(height: 48),
-            for (var i = 0; i < items.length; i++)
-              ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                  child: _SidebarButton(
-                    key: ValueKey('sidebar_item_$i'),
-                    data: items[i],
+            // keep the buttons block a fixed height so hover/width animation
+            // doesn't change vertical positions of items below (e.g., chat icons)
+            SizedBox(
+              height: items.length * (itemHeight + 12.0),
+              child: Column(
+                children: [
+                  for (var i = 0; i < items.length; i++) ...[
+                    SizedBox(
+                      height: itemHeight,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                        child: _SidebarButton(
+                          key: ValueKey('sidebar_item_$i'),
+                          data: items[i],
+                          expanded: _hovering,
+                          selected: widget.selectedIndex == i,
+                          onTap: () {
+                            if (i == 0) {
+                              widget.onNewChat?.call();
+                            }
+                            widget.onItemSelected?.call(i);
+                          },
+                        ),
+                      ),
+                    ),
+                    if (i < items.length - 1) const SizedBox(height: 12),
+                  ],
+                ],
+              ),
+            ),
+
+            // quick list of chats
+            if (widget.chats != null) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                    child: _SidebarRevealText(
                     expanded: _hovering,
-                    selected: widget.selectedIndex == i,
-                    onTap: () {
-                      widget.onItemSelected?.call(i);
-                    },
+                    maxWidth: 160,
+                      child: Padding(
+                      padding: const EdgeInsets.only(left: 8.0),
+                      child: Text(
+                        'Chats',
+                        style: Theme.of(context).textTheme.titleSmall,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 12),
-              ],
-            
-            const Spacer(),
+              ),
+              const SizedBox(height: 8),
+              // scrollable chat list with a bottom fade so the user/avatar area
+              // remains visible and long lists gracefully fade out
+              Flexible(
+                child: Stack(
+                  children: [
+                    ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 88.0),
+                      itemCount: widget.chats!.length,
+                      itemBuilder: (ctx, i) {
+                        final c = widget.chats![i];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => widget.onChatSelected?.call(c.id),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 6.0),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(10),
+                                        color: Theme.of(context).colorScheme.primary.withAlpha(20),
+                                      ),
+                                      child: Icon(Icons.chat_bubble, size: 18, color: Theme.of(context).colorScheme.primary),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(child: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+
+                    // bottom fade overlay
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        child: Container(
+                          height: 72,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.white.withAlpha(0),
+                                Colors.white,
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Row(
@@ -126,22 +237,22 @@ class _ZenSidebarState extends State<ZenSidebar> {
                   Flexible(
                     fit: FlexFit.loose,
                     child: _SidebarRevealText(
-                      expanded: _hovering,
-                      maxWidth: 180,
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 12.0),
-                        child: Text(
-                          'Bennet{name}',
-                          style:
-                              Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: TextOverflow.clip,
+                        expanded: _hovering,
+                        maxWidth: 140,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 12.0),
+                          child: Text(
+                            'Bennet',
+                            style:
+                                Theme.of(context).textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.clip,
+                          ),
                         ),
                       ),
-                    ),
                   ),
                 ],
               ),
