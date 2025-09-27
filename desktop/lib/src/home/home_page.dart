@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:flex_color_picker/flex_color_picker.dart';
 
 import '../workspace/workspace.dart';
 import '../models/chat.dart';
@@ -646,7 +646,7 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 320),
+                constraints: const BoxConstraints(maxWidth: 400, maxHeight: 600),
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: SingleChildScrollView(
@@ -671,20 +671,66 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 20),
-                        Container(
-                          width: 280,
-                          child: ColorPicker(
-                            pickerColor: tempColor,
-                            onColorChanged: updateColor,
-                            enableAlpha: false,
-                            paletteType: PaletteType.hsvWithHue,
-                            labelTypes: const [],
-                            displayThumbColor: true,
-                            pickerAreaHeightPercent: 0.5,
+                        const SizedBox(height: 24),
+                        // Color Picker using flex_color_picker
+                        ColorPicker(
+                          color: tempColor,
+                          onColorChanged: updateColor,
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          spacing: 8,
+                          runSpacing: 8,
+                          wheelDiameter: 200,
+                          wheelWidth: 16,
+                          wheelHasBorder: true,
+                          pickersEnabled: const <ColorPickerType, bool>{
+                            ColorPickerType.both: true,
+                            ColorPickerType.primary: false,
+                            ColorPickerType.accent: false,
+                            ColorPickerType.bw: false,
+                            ColorPickerType.custom: false,
+                            ColorPickerType.wheel: true,
+                          },
+                          pickerTypeLabels: const <ColorPickerType, String>{
+                            ColorPickerType.both: 'Wheel & Grid',
+                            ColorPickerType.wheel: 'Color Wheel',
+                          },
+                          pickerTypeTextStyle: Theme.of(context).textTheme.bodyMedium,
+                          enableShadesSelection: false,
+                          includeIndex850: false,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          padding: const EdgeInsets.all(0),
+                          opacityTrackWidth: 150,
+                          opacityTrackHeight: 16,
+                          opacityThumbRadius: 16,
+                          copyPasteBehavior: const ColorPickerCopyPasteBehavior(
+                            copyButton: true,
+                            pasteButton: true,
+                            copyFormat: ColorPickerCopyFormat.hexRRGGBB,
+                            longPressMenu: true,
                           ),
+                          actionButtons: const ColorPickerActionButtons(
+                            okButton: true,
+                            closeButton: true,
+                            dialogActionButtons: false,
+                          ),
+                          showColorCode: true,
+                          colorCodeHasColor: true,
+                          colorCodeReadOnly: false,
+                          showColorName: false,
+                          showRecentColors: true,
+                          recentColors: const [],
+                          maxRecentColors: 5,
+                          showMaterialName: false,
+                          materialNameTextStyle: Theme.of(context).textTheme.bodySmall,
+                          colorNameTextStyle: Theme.of(context).textTheme.bodySmall,
+                          colorCodeTextStyle: Theme.of(context).textTheme.bodySmall,
+                          colorCodePrefixStyle: Theme.of(context).textTheme.bodySmall,
+                          selectedPickerTypeColor: Theme.of(context).colorScheme.primary,
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
+                        // Hex Input
                         SizedBox(
                           width: 280,
                           child: TextField(
@@ -702,6 +748,7 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                           ),
                         ),
                         const SizedBox(height: 16),
+                        // Color Preview
                         Container(
                           width: 280,
                           height: 60,
