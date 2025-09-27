@@ -11,6 +11,7 @@ Configuration / environment variables
 - `FIREBASE_WEB_API_KEY` — Firebase Web API key used for email/password sign-in (used by `/auth/login`).
 - `GEMINI_API_KEY` — API key for the Gemini (genai) model used by the AI endpoints.
 - `FIRESTORE_DATABASE_ID` (optional) — if you use a named Firestore database, set this.
+- `UPLOADS_DIR` (optional) — directory where uploaded chat files will be stored. Defaults to `backend/uploads`.
 
 Common response shape for errors
 
@@ -140,7 +141,8 @@ All chat endpoints are mounted under the `/chats` prefix.
 
 High-level data model (Firestore collections):
 - `chats` collection: documents have fields: `uid`, `title`, `systemPrompt`, `createdAt`, `updatedAt`.
-- Each chat document contains a subcollection `messages` with documents having fields `uid`, `role`, `content`, `createdAt`.
+- Each chat document contains a subcollection `messages` with documents having fields `uid`, `role`, `content`, `fileIds`, `createdAt`.
+- Each chat document may also contain a subcollection `files` with documents describing uploaded files (`uid`, `fileName`, `mimeType`, `size`, `storagePath`, `textPreview`, `createdAt`).
 
 Notes about authentication/authorization:
 - The backend uses Firebase Admin SDK to store and check `uid` values. The endpoints require callers to provide the `uid` of the acting user in the request (either as a query parameter for some GET endpoints or in the JSON body for mutating endpoints). The server checks the `uid` on stored documents and returns `403 Forbidden` if the provided `uid` does not own the resource.
@@ -199,7 +201,8 @@ Notes about authentication/authorization:
 ```json
 {
   "chat": { "id": "chat-id", "uid": "...", "title": "...", "systemPrompt": "...", "createdAt": "...", "updatedAt": "..." },
-  "messages": [ { "id": "msg-id", "role": "user|assistant|system", "content": "...", "createdAt": "..." }, ... ]
+  "messages": [ { "id": "msg-id", "role": "user|assistant|system", "content": "...", "fileIds": ["file-id"], "createdAt": "..." }, ... ],
+  "files": [ { "id": "file-id", "fileName": "notes.txt", "mimeType": "text/plain", "size": 1234, "downloadPath": "/chats/chat-id/files/file-id/download", "textPreview": "First lines...", "createdAt": "..." } ]
 }
 ```
 
@@ -244,28 +247,63 @@ Notes about authentication/authorization:
 
 ```json
 {
-  "uid": "firebase-uid",          // required
-  "content": "Hello, how are you?", // required
-  "role": "user"                  // optional, defaults to "user"; allowed: "user", "system"
+  "uid": "firebase-uid",            // required
+  "content": "Hello, how are you?", // optional if files attached
+  "role": "user",                   // optional, defaults to "user"; allowed: "user", "system"
+  "fileIds": ["file-id-1", "file-id-2"] // optional list of uploaded file ids
 }
 ```
 
 - Behavior:
-  1. Validates the `uid` and `content`.
+  1. Validates the `uid`, `content` (unless files are attached), and optional `fileIds`.
   2. Stores the user message in the chat's `messages` subcollection and updates chat.updatedAt.
   3. If `GEMINI_API_KEY` is not configured, returns 503 not_configured and includes the stored `userMessage` in the response.
-  4. If `GEMINI_API_KEY` is configured, the backend reads the full message history (and optional systemPrompt), calls the Gemini model via the `genai` client, stores an assistant message with the model reply, and returns both `userMessage` and `assistantMessage`.
+  4. If `GEMINI_API_KEY` is configured, the backend reads the full message history (including text previews of any referenced files and the optional systemPrompt), calls the Gemini model via the `genai` client, stores an assistant message with the model reply, and returns both `userMessage` and `assistantMessage`.
 
 - Success 201 response body (when Gemini is configured):
 
 ```json
 {
-  "userMessage": { "id": "user-msg-id", "role": "user", "content": "...", "createdAt": "..." },
+  "userMessage": { "id": "user-msg-id", "role": "user", "content": "...", "fileIds": ["file-id-1"], "createdAt": "..." },
   "assistantMessage": { "id": "assistant-msg-id", "role": "assistant", "content": "...", "createdAt": "..." }
 }
 ```
 
 - If Gemini call fails: 502 ai_error with `userMessage` included.
+
+### File attachments for chats
+
+File handling endpoints let clients upload supporting documents that can be referenced in subsequent chat messages. Uploaded files are stored on disk under `UPLOADS_DIR` and described in a `files` subcollection for each chat. When a message references uploaded files via `fileIds`, the backend includes any stored text preview into the prompt that is sent to Gemini.
+
+#### POST /chats/<chat_id>/files
+- Description: Upload a file for a chat (multipart/form-data).
+- Form fields:
+  - `uid` (required) — the owner of the chat.
+  - `file` (required) — the file to upload.
+- Validation: maximum file size defaults to 10 MB (`MAX_UPLOAD_SIZE` config). Only the chat owner can upload files.
+- Success 201 response example:
+
+```json
+{
+  "file": {
+    "id": "file-id",
+    "fileName": "notes.txt",
+    "mimeType": "text/plain",
+    "size": 1234,
+    "downloadPath": "/chats/chat-id/files/file-id/download",
+    "textPreview": "First lines...",
+    "createdAt": "2025-09-27T12:34:56.000000+00:00"
+  }
+}
+```
+
+- Errors: 400 validation_error for missing fields or size limit, 403 forbidden if the user does not own the chat, 404 not_found if the chat does not exist.
+
+#### GET /chats/<chat_id>/files?uid=<uid>
+- Description: List all files uploaded for a chat. Response shape matches the `files` array returned by `GET /chats/<chat_id>`.
+
+#### GET /chats/<chat_id>/files/<file_id>/download?uid=<uid>
+- Description: Download a previously uploaded file. Returns binary content using the stored filename and MIME type. Only the chat owner can download files.
 
 -------------------------------------------------------------------------------
 

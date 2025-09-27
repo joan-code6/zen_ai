@@ -25,6 +25,8 @@ def create_app(config: AppConfig | None = None) -> Flask:
         FIREBASE_WEB_API_KEY=config.firebase_web_api_key,
         GEMINI_API_KEY=config.gemini_api_key,
         FIRESTORE_DATABASE_ID=config.firestore_database_id,
+        UPLOADS_DIR=str(config.uploads_dir),
+        MAX_UPLOAD_SIZE=10 * 1024 * 1024,
     )
 
     CORS(app)

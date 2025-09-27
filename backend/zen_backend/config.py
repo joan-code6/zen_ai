@@ -18,6 +18,7 @@ class AppConfig:
     firebase_credentials_path: Path
     firebase_web_api_key: Optional[str]
     gemini_api_key: Optional[str]
+    uploads_dir: Path
     firestore_database_id: Optional[str] = None
 
 
@@ -62,10 +63,19 @@ def load_config() -> AppConfig:
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     firestore_database_id = os.getenv("FIRESTORE_DATABASE_ID")
 
+    uploads_dir_raw = os.getenv("UPLOADS_DIR")
+    if uploads_dir_raw:
+        uploads_dir = _resolve_path(uploads_dir_raw, backend_dir)
+    else:
+        uploads_dir = (backend_dir / "uploads").resolve()
+
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
     return AppConfig(
         port=port,
         firebase_credentials_path=credentials_path,
         firebase_web_api_key=firebase_web_api_key,
         gemini_api_key=gemini_api_key,
         firestore_database_id=firestore_database_id,
+        uploads_dir=uploads_dir,
     )

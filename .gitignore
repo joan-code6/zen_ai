@@ -67,3 +67,4 @@ desktop/android/app/debug
 desktop/android/app/profile
 desktop/android/app/release
 backend/.env
+backend/uploads/

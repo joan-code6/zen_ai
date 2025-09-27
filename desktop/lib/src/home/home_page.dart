@@ -190,6 +190,11 @@ class _ZenHomePageState extends State<ZenHomePage> {
       _selectedChatId = id;
       _selectedIndex = 0; // focus workspace which shows chat
     });
+    _preloadChat(id);
+  }
+
+  Future<void> _preloadChat(String chatId) async {
+    await _appState.ensureChatLoaded(chatId);
   }
 
   Future<void> _onRenameChat(String id) async {
