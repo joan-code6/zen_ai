@@ -55,7 +55,7 @@ class ZenWorkspace extends StatelessWidget {
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.displaySmall?.copyWith(
               fontWeight: FontWeight.w500,
-              color: Colors.grey.shade900,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.9),
             ),
             maxLines: 1,
             overflow: TextOverflow.fade,
@@ -130,6 +130,14 @@ class _ChatViewState extends State<_ChatView> {
   Widget build(BuildContext context) {
     final chat = widget.chat;
     final messages = chat.messages as List<ChatMessage>;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final composerBorderColor = colorScheme.outlineVariant.withOpacity(
+      isDark ? 0.4 : 0.32,
+    );
+    final composerBackground = colorScheme.surface;
+    final composerShadow = theme.shadowColor.withOpacity(isDark ? 0.5 : 0.12);
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -155,9 +163,11 @@ class _ChatViewState extends State<_ChatView> {
               itemBuilder: (context, i) {
                 final m = messages[i];
                 final bg = m.fromUser
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.grey.shade200;
-                final fg = m.fromUser ? Colors.white : Colors.black87;
+                    ? colorScheme.primary
+                    : colorScheme.surfaceVariant;
+                final fg = m.fromUser
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurface.withOpacity(0.92);
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8.0),
                   child: Row(
@@ -196,8 +206,15 @@ class _ChatViewState extends State<_ChatView> {
                   ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: Colors.grey.shade300),
-                    color: Colors.white,
+                    border: Border.all(color: composerBorderColor),
+                    color: composerBackground,
+                    boxShadow: [
+                      BoxShadow(
+                        color: composerShadow,
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
                   ),
                   child: Row(
                     children: [
@@ -246,9 +263,9 @@ class _ChatViewState extends State<_ChatView> {
                         icon: Icons.send_rounded,
                         tooltip: 'Send',
                         onPressed: _send,
-                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        backgroundColor: colorScheme.primary,
                         borderColor: Colors.transparent,
-                        iconColor: Colors.white,
+                        iconColor: colorScheme.onPrimary,
                       ),
                     ],
                   ),
@@ -304,8 +321,14 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = Colors.grey.shade300;
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final borderColor = colorScheme.outlineVariant.withOpacity(
+      isDark ? 0.38 : 0.32,
+    );
+    final composerBackground = colorScheme.surface;
+    final shadowColor = theme.shadowColor.withOpacity(isDark ? 0.55 : 0.12);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -320,20 +343,20 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
               ),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
-                color: Colors.white,
+                color: composerBackground,
                 border: Border.all(color: borderColor),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 16,
-                    offset: Offset(0, 6),
+                    color: shadowColor,
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
                   ),
                 ],
               ),
               child: Row(
                 children: [
                   _RoundActionButton(
-                    icon: Icons.add,
+                    icon: Icons.attach_file,
                     tooltip: 'Upload a file',
                     onPressed: () {},
                   ),
@@ -399,7 +422,7 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
                     onPressed: _send,
                     backgroundColor: colorScheme.primary,
                     borderColor: Colors.transparent,
-                    iconColor: Colors.white,
+                    iconColor: colorScheme.onPrimary,
                   ),
                 ],
               ),
@@ -430,9 +453,16 @@ class _RoundActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final defaultBackground = Colors.grey.shade100;
-    final defaultBorder = Colors.grey.shade300;
-    final defaultIcon = Colors.grey.shade700;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final defaultBackground = colorScheme.surfaceVariant.withOpacity(
+      isDark ? 0.45 : 0.9,
+    );
+    final defaultBorder = colorScheme.outlineVariant.withOpacity(
+      isDark ? 0.4 : 0.5,
+    );
+    final defaultIcon = colorScheme.onSurfaceVariant;
     const size = 44.0;
     const iconSize = 24.0;
     return Tooltip(

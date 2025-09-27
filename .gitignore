@@ -16,7 +16,7 @@ node_modules/
 .vscode/
 .idea/
 
-
+.config
 
 # Desktop specific ignores for Flutter
 
@@ -66,3 +66,4 @@ desktop/app.*.map.json
 desktop/android/app/debug
 desktop/android/app/profile
 desktop/android/app/release
+backend/.env

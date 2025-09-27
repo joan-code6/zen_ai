@@ -6,8 +6,17 @@ class ZenSidebar extends StatefulWidget {
   final List<dynamic>? chats; // simple dynamic to avoid import here
   final ValueChanged<String>? onChatSelected;
   final VoidCallback? onNewChat;
+  final VoidCallback? onUserPressed;
 
-  const ZenSidebar({super.key, this.selectedIndex = 0, this.onItemSelected, this.chats, this.onChatSelected, this.onNewChat});
+  const ZenSidebar({
+    super.key,
+    this.selectedIndex = 0,
+    this.onItemSelected,
+    this.chats,
+    this.onChatSelected,
+    this.onNewChat,
+    this.onUserPressed,
+  });
 
   @override
   State<ZenSidebar> createState() => _ZenSidebarState();
@@ -18,22 +27,25 @@ class _ZenSidebarState extends State<ZenSidebar> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final sidebarColor = colorScheme.surface;
+    final shadowColor = theme.shadowColor.withOpacity(isDark ? 0.4 : 0.12);
+    final dividerColor = colorScheme.outlineVariant.withOpacity(
+      isDark ? 0.25 : 0.18,
+    );
+
     final items = <_SidebarItemData>[
       const _SidebarItemData(
         icon: Icons.chat_bubble_outline,
         label: 'New Chat',
       ),
-      const _SidebarItemData(
-        icon: Icons.search,
-        label: 'Search',
-      ),
-      const _SidebarItemData(
-        icon: Icons.note_outlined,
-        label: 'Notes',
-      ),
+      const _SidebarItemData(icon: Icons.search, label: 'Search'),
+      const _SidebarItemData(icon: Icons.note_outlined, label: 'Notes'),
     ];
-  // keep a fixed per-item height to avoid vertical shifts on hover/expand
-  final double itemHeight = 56.0;
+    // keep a fixed per-item height to avoid vertical shifts on hover/expand
+    final double itemHeight = 56.0;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
@@ -43,13 +55,14 @@ class _ZenSidebarState extends State<ZenSidebar> {
         curve: Curves.easeOut,
         width: _hovering ? 200 : 80,
         clipBehavior: Clip.hardEdge,
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        decoration: BoxDecoration(
+          color: sidebarColor,
+          border: Border(right: BorderSide(color: dividerColor)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black12,
-              blurRadius: 12,
-              offset: Offset(4, 0),
+              color: shadowColor,
+              blurRadius: 24,
+              offset: const Offset(4, 0),
             ),
           ],
         ),
@@ -76,9 +89,8 @@ class _ZenSidebarState extends State<ZenSidebar> {
                           padding: const EdgeInsets.only(left: 12.0),
                           child: Text(
                             'Zen',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
                             maxLines: 1,
                             softWrap: false,
                             overflow: TextOverflow.clip,
@@ -129,10 +141,10 @@ class _ZenSidebarState extends State<ZenSidebar> {
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                    child: _SidebarRevealText(
+                  child: _SidebarRevealText(
                     expanded: _hovering,
                     maxWidth: 160,
-                      child: Padding(
+                    child: Padding(
                       padding: const EdgeInsets.only(left: 8.0),
                       child: Text(
                         'Chats',
@@ -164,7 +176,10 @@ class _ZenSidebarState extends State<ZenSidebar> {
                               onTap: () => widget.onChatSelected?.call(c.id),
                               borderRadius: BorderRadius.circular(10),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 6.0),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8.0,
+                                  horizontal: 6.0,
+                                ),
                                 child: Row(
                                   children: [
                                     Container(
@@ -172,12 +187,26 @@ class _ZenSidebarState extends State<ZenSidebar> {
                                       height: 36,
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(10),
-                                        color: Theme.of(context).colorScheme.primary.withAlpha(20),
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary.withAlpha(20),
                                       ),
-                                      child: Icon(Icons.chat_bubble, size: 18, color: Theme.of(context).colorScheme.primary),
+                                      child: Icon(
+                                        Icons.chat_bubble,
+                                        size: 18,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
                                     ),
                                     const SizedBox(width: 10),
-                                    Expanded(child: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                    Expanded(
+                                      child: Text(
+                                        c.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -200,8 +229,8 @@ class _ZenSidebarState extends State<ZenSidebar> {
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
                               colors: [
-                                Colors.white.withAlpha(0),
-                                Colors.white,
+                                sidebarColor.withOpacity(0),
+                                sidebarColor,
                               ],
                             ),
                           ),
@@ -216,45 +245,71 @@ class _ZenSidebarState extends State<ZenSidebar> {
 
             const SizedBox(height: 16),
             Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withAlpha((0.1 * 255).round()),
-                    ),
-                    child: Icon(
-                      Icons.account_circle_outlined,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12.0,
+                vertical: 16.0,
+              ),
+              child: GestureDetector(
+                onTap: widget.onUserPressed,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  padding: const EdgeInsets.symmetric(vertical: 6.0),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    color: widget.onUserPressed == null
+                        ? Colors.transparent
+                        : _hovering
+                        ? Theme.of(
+                            context,
+                          ).colorScheme.primary.withOpacity(0.06)
+                        : Colors.transparent,
                   ),
-                  Flexible(
-                    fit: FlexFit.loose,
-                    child: _SidebarRevealText(
-                        expanded: _hovering,
-                        maxWidth: 140,
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 12.0),
-                          child: Text(
-                            'Bennet',
-                            style:
-                                Theme.of(context).textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: TextOverflow.clip,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withAlpha((0.1 * 255).round()),
+                        ),
+                        child: Icon(
+                          Icons.account_circle_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      Flexible(
+                        fit: FlexFit.loose,
+                        child: _SidebarRevealText(
+                          expanded: _hovering,
+                          maxWidth: 140,
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 12.0),
+                            child: Text(
+                              'Bennet',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.clip,
+                            ),
                           ),
                         ),
                       ),
+                      if (_hovering)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: Icon(
+                            Icons.expand_more,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ],
@@ -302,16 +357,13 @@ class _SidebarButton extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   color: bg,
                 ),
-                child: Icon(
-                  data.icon,
-                  color: colorScheme.primary,
-                ),
+                child: Icon(data.icon, color: colorScheme.primary),
               ),
               Flexible(
                 fit: FlexFit.loose,
@@ -323,8 +375,8 @@ class _SidebarButton extends StatelessWidget {
                     child: Text(
                       data.label,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w500,
-                          ),
+                        fontWeight: FontWeight.w500,
+                      ),
                       maxLines: 1,
                       softWrap: false,
                       overflow: TextOverflow.clip,
@@ -362,10 +414,7 @@ class _SidebarRevealText extends StatelessWidget {
         final clamped = value.clamp(0.0, 1.0);
         return Opacity(
           opacity: clamped,
-          child: SizedBox(
-            width: maxWidth * clamped,
-            child: child,
-          ),
+          child: SizedBox(width: maxWidth * clamped, child: child),
         );
       },
     );
