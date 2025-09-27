@@ -7,6 +7,8 @@ class ZenSidebar extends StatefulWidget {
   final ValueChanged<String>? onChatSelected;
   final VoidCallback? onNewChat;
   final VoidCallback? onUserPressed;
+  final ValueChanged<String>? onChatRename;
+  final ValueChanged<String>? onChatDelete;
 
   const ZenSidebar({
     super.key,
@@ -16,6 +18,8 @@ class ZenSidebar extends StatefulWidget {
     this.onChatSelected,
     this.onNewChat,
     this.onUserPressed,
+    this.onChatRename,
+    this.onChatDelete,
   });
 
   @override
@@ -24,6 +28,55 @@ class ZenSidebar extends StatefulWidget {
 
 class _ZenSidebarState extends State<ZenSidebar> {
   bool _hovering = false;
+  bool _contextMenuOpen = false;
+
+  Future<void> _showChatContextMenu(
+    BuildContext context,
+    Offset globalPosition,
+    dynamic chat,
+  ) async {
+    if (widget.onChatRename == null && widget.onChatDelete == null) {
+      return;
+    }
+
+    final overlay = Overlay.of(context);
+    final renderBox = overlay.context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    _contextMenuOpen = true;
+    try {
+      final result = await showMenu<String>(
+        context: context,
+        position: RelativeRect.fromRect(
+          Rect.fromPoints(globalPosition, globalPosition),
+          Offset.zero & renderBox.size,
+        ),
+        items: [
+          if (widget.onChatRename != null)
+            const PopupMenuItem<String>(
+              value: 'rename',
+              child: Text('Rename'),
+            ),
+          if (widget.onChatDelete != null)
+            const PopupMenuItem<String>(
+              value: 'delete',
+              child: Text('Delete'),
+            ),
+        ],
+      );
+
+      switch (result) {
+        case 'rename':
+          widget.onChatRename?.call(chat.id);
+          break;
+        case 'delete':
+          widget.onChatDelete?.call(chat.id);
+          break;
+      }
+    } finally {
+      _contextMenuOpen = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +102,11 @@ class _ZenSidebarState extends State<ZenSidebar> {
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
+      onExit: (_) {
+        if (!_contextMenuOpen) {
+          setState(() => _hovering = false);
+        }
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOut,
@@ -170,44 +227,70 @@ class _ZenSidebarState extends State<ZenSidebar> {
                         final c = widget.chats![i];
                         return Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => widget.onChatSelected?.call(c.id),
-                              borderRadius: BorderRadius.circular(10),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8.0,
-                                  horizontal: 6.0,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onSecondaryTapDown: (details) =>
+                                _showChatContextMenu(
+                                  context,
+                                  details.globalPosition,
+                                  c,
                                 ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 36,
-                                      height: 36,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(10),
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary.withAlpha(20),
+                            onLongPress: () {
+                              if (widget.onChatRename == null &&
+                                  widget.onChatDelete == null) {
+                                return;
+                              }
+                              final box = context.findRenderObject();
+                              if (box is RenderBox) {
+                                final position = box.localToGlobal(
+                                  box.size.center(Offset.zero),
+                                );
+                                _showChatContextMenu(
+                                  context,
+                                  position,
+                                  c,
+                                );
+                              }
+                            },
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => widget.onChatSelected?.call(c.id),
+                                borderRadius: BorderRadius.circular(10),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8.0,
+                                    horizontal: 6.0,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(10),
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary.withAlpha(20),
+                                        ),
+                                        child: Icon(
+                                          Icons.chat_bubble,
+                                          size: 18,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
                                       ),
-                                      child: Icon(
-                                        Icons.chat_bubble,
-                                        size: 18,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          c.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        c.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),

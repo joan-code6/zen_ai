@@ -144,6 +144,103 @@ class _ZenHomePageState extends State<ZenHomePage> {
     });
   }
 
+  Future<void> _onRenameChat(String id) async {
+    final controller = TextEditingController();
+    final existingIndex = _chats.indexWhere((c) => c.id == id);
+    if (existingIndex == -1) {
+      controller.dispose();
+      return;
+    }
+    controller.text = _chats[existingIndex].title;
+
+    final updatedName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Rename chat'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Chat name',
+            ),
+            onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (!mounted) return;
+
+    final newTitle = updatedName?.trim();
+    if (newTitle == null || newTitle.isEmpty) return;
+
+    final idx = _chats.indexWhere((c) => c.id == id);
+    if (idx == -1) return;
+
+    if (_chats[idx].title == newTitle) return;
+
+    setState(() {
+      _chats[idx].title = newTitle;
+    });
+  }
+
+  Future<void> _onDeleteChat(String id) async {
+    final idx = _chats.indexWhere((c) => c.id == id);
+    if (idx == -1) return;
+
+    final chatTitle = _chats[idx].title;
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Delete chat'),
+            content: Text(
+              'Are you sure you want to delete "$chatTitle"? This action cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor:
+                      Theme.of(dialogContext).colorScheme.errorContainer,
+                  foregroundColor:
+                      Theme.of(dialogContext).colorScheme.onErrorContainer,
+                ),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!mounted || !confirmed) return;
+
+    setState(() {
+      _chats.removeAt(idx);
+      if (_selectedChatId == id) {
+        _selectedChatId = null;
+      }
+    });
+  }
+
   void _sendMessage(String text) {
     if (text.trim().isEmpty) return;
     setState(() {
@@ -200,6 +297,8 @@ class _ZenHomePageState extends State<ZenHomePage> {
             onChatSelected: _onSelectChat,
             onNewChat: _onCreateChat,
             onUserPressed: _openUserOverlay,
+            onChatRename: _onRenameChat,
+            onChatDelete: _onDeleteChat,
           ),
 
           // Main content area wrapped in a Stack so overlays (Spotlight) can be positioned
@@ -526,47 +625,125 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
       context: context,
       builder: (dialogContext) {
         Color tempColor = _accentColor;
+        final hexController = TextEditingController(
+          text: '#${tempColor.value.toRadixString(16).substring(2).toUpperCase()}',
+        );
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            return AlertDialog(
-              title: const Text('Eigene Akzentfarbe'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ColorPicker(
-                      pickerColor: tempColor,
-                      onColorChanged: (color) =>
-                          setStateDialog(() => tempColor = color),
-                      enableAlpha: false,
-                      paletteType: PaletteType.hsvWithHue,
-                      labelTypes: const [],
-                      displayThumbColor: true,
-                      pickerAreaHeightPercent: 0.72,
+            void updateColor(Color color) {
+              setStateDialog(() => tempColor = color);
+              hexController.text = '#${color.value.toRadixString(16).substring(2).toUpperCase()}';
+            }
+
+            void updateFromHex(String hex) {
+              final color = Color(int.tryParse(hex.replaceFirst('#', ''), radix: 16) ?? tempColor.value);
+              setStateDialog(() => tempColor = color);
+            }
+
+            return Dialog(
+              insetPadding: const EdgeInsets.all(16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 320),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.palette_outlined,
+                              color: Theme.of(context).colorScheme.primary,
+                              size: 28,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Custom Accent Color',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        Container(
+                          width: 280,
+                          child: ColorPicker(
+                            pickerColor: tempColor,
+                            onColorChanged: updateColor,
+                            enableAlpha: false,
+                            paletteType: PaletteType.hsvWithHue,
+                            labelTypes: const [],
+                            displayThumbColor: true,
+                            pickerAreaHeightPercent: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: 280,
+                          child: TextField(
+                            controller: hexController,
+                            decoration: InputDecoration(
+                              labelText: 'Hex Code',
+                              hintText: '#FF5733',
+                              prefixIcon: const Icon(Icons.tag),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onChanged: updateFromHex,
+                            maxLength: 7,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          width: 280,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: tempColor,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'Preview',
+                            style: TextStyle(
+                              color: ThemeData.estimateBrightnessForColor(tempColor) == Brightness.dark
+                                  ? Colors.white
+                                  : Colors.black,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => Navigator.of(dialogContext).pop(),
+                              child: const Text('Cancel'),
+                            ),
+                            const SizedBox(width: 12),
+                            FilledButton(
+                              onPressed: () => Navigator.of(dialogContext).pop(tempColor),
+                              child: const Text('Apply'),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: tempColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.black12, width: 1),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Abbrechen'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(tempColor),
-                  child: const Text('Übernehmen'),
-                ),
-              ],
             );
           },
         );
