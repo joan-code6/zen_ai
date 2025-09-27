@@ -1,13 +1,17 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:flex_color_picker/flex_color_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../workspace/workspace.dart';
-import '../models/chat.dart';
 import '../sidebar/sidebar.dart';
 import '../sidebar/notes_panel.dart';
+import '../state/app_state.dart';
 import '../state/user_preferences.dart';
 
 class ZenHomePage extends StatefulWidget {
+  final AppState appState;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Color seedColor;
@@ -15,6 +19,7 @@ class ZenHomePage extends StatefulWidget {
 
   const ZenHomePage({
     super.key,
+    required this.appState,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.seedColor,
@@ -26,6 +31,7 @@ class ZenHomePage extends StatefulWidget {
 }
 
 class _ZenHomePageState extends State<ZenHomePage> {
+  late AppState _appState;
   // 0 = New Chat, 1 = Search, 2 = Notes
   int _selectedIndex = 0;
 
@@ -42,8 +48,6 @@ class _ZenHomePageState extends State<ZenHomePage> {
 
   // currently selected note shown in the right-side notes panel
   Note? _notesPanelSelectedNote;
-  // chats
-  final List<Chat> _chats = [];
   String? _selectedChatId;
   // Spotlight overlay search controller
   final TextEditingController _spotlightController = TextEditingController();
@@ -53,15 +57,59 @@ class _ZenHomePageState extends State<ZenHomePage> {
   @override
   void initState() {
     super.initState();
+    _appState = widget.appState;
+    _appState.addListener(_onAppStateChanged);
     _spotlightController.addListener(() {
       setState(() => _spotlightQuery = _spotlightController.text);
     });
   }
 
   @override
+  void didUpdateWidget(covariant ZenHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.appState, widget.appState)) {
+      oldWidget.appState.removeListener(_onAppStateChanged);
+      _appState = widget.appState;
+      _appState.addListener(_onAppStateChanged);
+    }
+  }
+
+  @override
   void dispose() {
+    _appState.removeListener(_onAppStateChanged);
     _spotlightController.dispose();
     super.dispose();
+  }
+
+  void _onAppStateChanged() {
+    if (!mounted) return;
+
+    final error = _appState.consumeError();
+    final info = _appState.consumeInfo();
+
+    if (error != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Theme.of(context).colorScheme.errorContainer),
+        );
+      });
+    }
+    if (info != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(info)),
+        );
+      });
+    }
+
+    final selected = _selectedChatId;
+    if (selected != null && _appState.chatById(selected) == null) {
+      setState(() => _selectedChatId = null);
+    } else {
+      setState(() {});
+    }
   }
 
   void _onSidebarItemSelected(int index) {
@@ -145,13 +193,10 @@ class _ZenHomePageState extends State<ZenHomePage> {
   }
 
   Future<void> _onRenameChat(String id) async {
-    final controller = TextEditingController();
-    final existingIndex = _chats.indexWhere((c) => c.id == id);
-    if (existingIndex == -1) {
-      controller.dispose();
-      return;
-    }
-    controller.text = _chats[existingIndex].title;
+    final chat = _appState.chatById(id);
+    if (chat == null) return;
+
+    final controller = TextEditingController(text: chat.title ?? '');
 
     final updatedName = await showDialog<String>(
       context: context,
@@ -187,22 +232,16 @@ class _ZenHomePageState extends State<ZenHomePage> {
 
     final newTitle = updatedName?.trim();
     if (newTitle == null || newTitle.isEmpty) return;
+    if (chat.title == newTitle) return;
 
-    final idx = _chats.indexWhere((c) => c.id == id);
-    if (idx == -1) return;
-
-    if (_chats[idx].title == newTitle) return;
-
-    setState(() {
-      _chats[idx].title = newTitle;
-    });
+    await _appState.updateChat(chatId: id, title: newTitle);
   }
 
   Future<void> _onDeleteChat(String id) async {
-    final idx = _chats.indexWhere((c) => c.id == id);
-    if (idx == -1) return;
+    final chat = _appState.chatById(id);
+    if (chat == null) return;
 
-    final chatTitle = _chats[idx].title;
+    final chatTitle = chat.title ?? 'Untitled chat';
 
     final confirmed = await showDialog<bool>(
           context: context,
@@ -233,47 +272,43 @@ class _ZenHomePageState extends State<ZenHomePage> {
 
     if (!mounted || !confirmed) return;
 
-    setState(() {
-      _chats.removeAt(idx);
-      if (_selectedChatId == id) {
-        _selectedChatId = null;
-      }
-    });
+    await _appState.deleteChat(id);
+    if (!mounted) return;
+    if (_selectedChatId == id) {
+      setState(() => _selectedChatId = null);
+    }
   }
 
-  void _sendMessage(String text) {
-    if (text.trim().isEmpty) return;
-    setState(() {
-      Chat chat;
-      if (_selectedChatId == null) {
-        final id = DateTime.now().millisecondsSinceEpoch.toString();
-        chat = Chat(
-          id: id,
-          title: text.length > 20 ? text.substring(0, 20) : text,
-        );
-        _chats.insert(0, chat);
-        _selectedChatId = id;
-      } else {
-        chat = _chats.firstWhere((c) => c.id == _selectedChatId);
-      }
-      chat.messages.add(
-        ChatMessage(id: DateTime.now().toString(), text: text, fromUser: true),
-      );
-    });
+  Future<void> _sendMessage(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
 
-    // simulate AI reply after a short delay
-    Future.delayed(const Duration(milliseconds: 650), () {
-      setState(() {
-        final chat = _chats.firstWhere((c) => c.id == _selectedChatId);
-        chat.messages.add(
-          ChatMessage(
-            id: DateTime.now().toString(),
-            text: 'Simulated reply to: "$text"',
-            fromUser: false,
-          ),
+    if (!_appState.isAuthenticated) {
+      _openUserOverlay();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to start chatting.')),
         );
       });
-    });
+      return;
+    }
+
+    String? chatId = _selectedChatId;
+
+    if (chatId == null) {
+      final created = await _appState.createChat(title: _deriveChatTitle(trimmed));
+      if (created == null) return;
+      chatId = created.id;
+      if (!mounted) return;
+      setState(() {
+        _selectedChatId = chatId;
+        _selectedIndex = 0;
+      });
+    }
+
+  await _appState.sendMessage(chatId: chatId, content: trimmed);
+  await _appState.ensureChatLoaded(chatId);
   }
 
   void _openUserOverlay() {
@@ -282,6 +317,13 @@ class _ZenHomePageState extends State<ZenHomePage> {
 
   void _closeUserOverlay() {
     setState(() => _showUserOverlay = false);
+  }
+
+  String _deriveChatTitle(String text) {
+    final normalized = text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) return 'New chat';
+    if (normalized.length <= 40) return normalized;
+    return '${normalized.substring(0, 40).trimRight()}…';
   }
 
   @override
@@ -293,12 +335,16 @@ class _ZenHomePageState extends State<ZenHomePage> {
           ZenSidebar(
             selectedIndex: _selectedIndex,
             onItemSelected: _onSidebarItemSelected,
-            chats: _chats,
+            chats: _appState.chats,
+            isLoadingChats: _appState.isSyncingChats,
+            onRefreshChats: _appState.isSyncingChats ? null : _appState.fetchChats,
             onChatSelected: _onSelectChat,
             onNewChat: _onCreateChat,
             onUserPressed: _openUserOverlay,
             onChatRename: _onRenameChat,
             onChatDelete: _onDeleteChat,
+            isAuthenticated: _appState.isAuthenticated,
+            userDisplayName: _appState.email ?? 'Guest',
           ),
 
           // Main content area wrapped in a Stack so overlays (Spotlight) can be positioned
@@ -311,8 +357,13 @@ class _ZenHomePageState extends State<ZenHomePage> {
                     Expanded(
                       child: ZenWorkspace(
                         selectedIndex: _selectedIndex,
-                        chats: _chats,
+                        chats: _appState.chats,
                         selectedChatId: _selectedChatId,
+                        selectedChat: _appState.chatById(_selectedChatId),
+                        isChatLoading: _selectedChatId != null
+                            ? _appState.isChatLoading(_selectedChatId!)
+                            : false,
+                        isSendingMessage: _appState.isSendingMessage,
                         onCreateChat: _onCreateChat,
                         onSendMessage: _sendMessage,
                       ),
@@ -446,6 +497,7 @@ class _ZenHomePageState extends State<ZenHomePage> {
                       onThemeModeChanged: widget.onThemeModeChanged,
                       seedColor: widget.seedColor,
                       onSeedColorChanged: widget.onSeedColorChanged,
+                      appState: _appState,
                     ),
                   ),
               ],
@@ -476,21 +528,22 @@ class _ZenHomePageState extends State<ZenHomePage> {
       return false;
     }
 
-    final noteMatches = q.isEmpty
-        ? _notes.take(6).toList()
-        : _notes
-              .where((n) => matches(n.title, q) || matches(n.excerpt, q))
-              .toList();
+  final noteMatches = q.isEmpty
+    ? _notes.take(6).toList()
+    : _notes
+        .where((n) => matches(n.title, q) || matches(n.excerpt, q))
+        .toList();
 
-    final chatMatches = q.isEmpty
-        ? _chats.take(6).toList()
-        : _chats
-              .where(
-                (c) =>
-                    matches(c.title, q) ||
-                    c.messages.any((m) => matches(m.text, q)),
-              )
-              .toList();
+  final chats = _appState.chats;
+  final chatMatches = q.isEmpty
+    ? chats.take(6).toList()
+    : chats
+      .where(
+        (c) =>
+          matches(c.title ?? 'Untitled chat', q) ||
+          c.messages.any((m) => matches(m.content, q)),
+      )
+      .toList();
 
     final results = <Widget>[];
     for (var n in noteMatches) {
@@ -517,10 +570,10 @@ class _ZenHomePageState extends State<ZenHomePage> {
       results.add(
         ListTile(
           leading: const Icon(Icons.chat_bubble_outline),
-          title: Text(c.title),
+          title: Text(c.title ?? 'Untitled chat'),
           subtitle: c.messages.isNotEmpty
               ? Text(
-                  c.messages.last.text,
+                  c.messages.last.content,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 )
@@ -561,6 +614,7 @@ class _UserAccountOverlay extends StatefulWidget {
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final Color seedColor;
   final ValueChanged<Color> onSeedColorChanged;
+  final AppState appState;
 
   const _UserAccountOverlay({
     required this.onClose,
@@ -568,6 +622,7 @@ class _UserAccountOverlay extends StatefulWidget {
     required this.onThemeModeChanged,
     required this.seedColor,
     required this.onSeedColorChanged,
+    required this.appState,
   });
 
   @override
@@ -580,6 +635,11 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
   late bool _notificationsEnabled;
   late bool _smartReplySuggestions;
   late bool _autoArchiveChats;
+  final _authFormKey = GlobalKey<FormState>();
+  late final TextEditingController _emailController;
+  late final TextEditingController _passwordController;
+  late final TextEditingController _displayNameController;
+  bool _isSignupMode = false;
 
   static const List<_AccentColorOption> _accentColorOptions = [
     _AccentColorOption(Color(0xFFEE5396), 'Pink'),
@@ -599,6 +659,10 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
     _notificationsEnabled = UserPreferences.notificationsEnabled;
     _smartReplySuggestions = UserPreferences.smartReplySuggestions;
     _autoArchiveChats = UserPreferences.autoArchiveChats;
+    _emailController = TextEditingController(text: widget.appState.email);
+    _passwordController = TextEditingController();
+    _displayNameController = TextEditingController();
+    widget.appState.addListener(_onAppStateChanged);
   }
 
   @override
@@ -610,6 +674,31 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
     if (oldWidget.seedColor != widget.seedColor) {
       _accentColor = widget.seedColor;
     }
+    if (!identical(oldWidget.appState, widget.appState)) {
+      oldWidget.appState.removeListener(_onAppStateChanged);
+      widget.appState.addListener(_onAppStateChanged);
+    }
+  }
+
+  void _onAppStateChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (widget.appState.isAuthenticated) {
+        _emailController.text = widget.appState.email ?? _emailController.text;
+        _passwordController.clear();
+        _displayNameController.clear();
+        _isSignupMode = false;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    widget.appState.removeListener(_onAppStateChanged);
+    _emailController.dispose();
+    _passwordController.dispose();
+    _displayNameController.dispose();
+    super.dispose();
   }
 
   void _onAccentColorSelected(Color color) {
@@ -618,6 +707,54 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
       _accentColor = color;
     });
     widget.onSeedColorChanged(color);
+  }
+
+  String? _validateEmail(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) {
+      return 'Please enter your email address';
+    }
+    final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailRegex.hasMatch(text)) {
+      return 'Enter a valid email';
+    }
+    return null;
+  }
+
+  String? _validatePassword(String? value) {
+    final text = value ?? '';
+    if (text.length < 6) {
+      return 'Password must be at least 6 characters';
+    }
+    return null;
+  }
+
+  Future<void> _handleSubmit() async {
+    final form = _authFormKey.currentState;
+    if (form == null || !form.validate()) return;
+    FocusScope.of(context).unfocus();
+
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+    final displayName = _displayNameController.text.trim();
+
+    if (_isSignupMode) {
+      final created = await widget.appState.signup(
+        email: email,
+        password: password,
+        displayName: displayName.isEmpty ? null : displayName,
+      );
+      if (!created) return;
+      final loggedIn = await widget.appState.login(email: email, password: password);
+      if (loggedIn && mounted) {
+        widget.onClose();
+      }
+    } else {
+      final loggedIn = await widget.appState.login(email: email, password: password);
+      if (loggedIn && mounted) {
+        widget.onClose();
+      }
+    }
   }
 
   Future<void> _openCustomColorPicker() async {
@@ -909,6 +1046,116 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
 
   Widget _buildProfileTab(BuildContext context) {
     final theme = Theme.of(context);
+    final isAuthenticated = widget.appState.isAuthenticated;
+    final isBusy = widget.appState.isAuthenticating || widget.appState.isRestoringSession;
+
+    if (!isAuthenticated) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _authFormKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _isSignupMode ? 'Create your Zen account' : 'Sign in to Zen',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _isSignupMode
+                    ? 'Sync chats across devices and keep your prompts backed up securely.'
+                    : 'Enter your credentials to load your chats and personal settings.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.mail_outline),
+                ),
+                validator: _validateEmail,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _passwordController,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  prefixIcon: Icon(Icons.password_outlined),
+                ),
+                obscureText: true,
+                validator: _validatePassword,
+              ),
+              if (_isSignupMode) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _displayNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Display name (optional)',
+                    prefixIcon: Icon(Icons.badge_outlined),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: isBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          _isSignupMode
+                              ? Icons.person_add_alt_1
+                              : Icons.login_rounded,
+                        ),
+                  label: Text(
+                    isBusy
+                        ? 'Please wait...'
+                        : (_isSignupMode ? 'Create account' : 'Sign in'),
+                  ),
+                  onPressed: isBusy ? null : _handleSubmit,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton(
+                  onPressed: isBusy
+                      ? null
+                      : () {
+                          setState(() => _isSignupMode = !_isSignupMode);
+                        },
+                  child: Text(
+                    _isSignupMode
+                        ? 'Have an account already? Sign in'
+                        : 'Need an account? Create one',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final session = widget.appState.session;
+    final email = session?.email ?? widget.appState.email ?? 'Unknown user';
+    final uid = session?.uid ?? widget.appState.uid ?? 'Unknown UID';
+    final expiry = session?.expiresAt;
+    final expiryLabel = expiry != null
+        ? '${expiry.toLocal().toString().split('.').first}'
+        : 'Token expiry unknown';
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -918,9 +1165,9 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
             children: [
               CircleAvatar(
                 radius: 32,
-                backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
+                backgroundColor: theme.colorScheme.primary.withOpacity(0.14),
                 child: Text(
-                  'B',
+                  email.isNotEmpty ? email[0].toUpperCase() : '?',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     color: theme.colorScheme.primary,
                     fontWeight: FontWeight.bold,
@@ -933,94 +1180,85 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Bennet Bauer',
+                      email,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Lead Product Designer',
+                      'UID · $uid',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     Text(
-                      'Member since March 2024',
+                      'Token valid until $expiryLabel',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
                 ),
               ),
-              FilledButton.tonalIcon(
-                onPressed: () {},
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Edit'),
+              FilledButton.icon(
+                onPressed: () async {
+                  await widget.appState.logout();
+                },
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('Sign out'),
               ),
             ],
           ),
           const SizedBox(height: 24),
           Card(
             child: Column(
-              children: const [
+              children: [
                 ListTile(
-                  leading: Icon(Icons.mail_outline),
-                  title: Text('Email'),
-                  subtitle: Text('bennet@example.com'),
+                  leading: const Icon(Icons.mail_outline),
+                  title: const Text('Email'),
+                  subtitle: Text(email),
                 ),
-                Divider(height: 1),
+                const Divider(height: 1),
                 ListTile(
-                  leading: Icon(Icons.workspace_premium_outlined),
-                  title: Text('Workspace role'),
-                  subtitle: Text('Administrator'),
+                  leading: const Icon(Icons.perm_identity),
+                  title: const Text('Firebase UID'),
+                  subtitle: Text(uid),
                 ),
-                Divider(height: 1),
+                const Divider(height: 1),
                 ListTile(
-                  leading: Icon(Icons.schedule_outlined),
-                  title: Text('Time zone'),
-                  subtitle: Text('Europe/Berlin (CEST)'),
+                  leading: const Icon(Icons.timer_outlined),
+                  title: const Text('Token expires'),
+                  subtitle: Text(expiryLabel),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'Security',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 12),
           Card(
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.key_outlined),
-                  title: const Text('Password'),
-                  subtitle: const Text('Last changed 2 months ago'),
-                  trailing: TextButton(
-                    onPressed: () {},
-                    child: const Text('Update'),
+                  leading: const Icon(Icons.chat_bubble_outline),
+                  title: const Text('Synced chats'),
+                  subtitle: Text(
+                    widget.appState.chats.isEmpty
+                        ? 'No chats stored yet.'
+                        : '${widget.appState.chats.length} chats available.',
                   ),
-                ),
-                const Divider(height: 1),
-                SwitchListTile.adaptive(
-                  value: true,
-                  onChanged: (_) {},
-                  title: const Text('Two-factor authentication'),
-                  subtitle: const Text(
-                    'Secure your account with an extra step.',
-                  ),
+                  trailing: widget.appState.isSyncingChats
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : IconButton(
+                          icon: const Icon(Icons.refresh),
+                          tooltip: 'Refresh chats',
+                          onPressed: widget.appState.fetchChats,
+                        ),
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.logout),
-            label: const Text('Sign out of all devices'),
           ),
         ],
       ),
@@ -1177,36 +1415,44 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
 
   Widget _buildActivityTab(BuildContext context) {
     final theme = Theme.of(context);
-    final activity = [
-      (
-        'Today · 09:42',
-        'Signed in from Zen Desktop (Windows) using password + 2FA.',
-      ),
-      (
-        'Yesterday · 18:05',
-        'Exported chat history for “Brand strategy kickoff”.',
-      ),
-      ('Sep 24 · 11:17', 'Created workspace note “Competitive insights Q3”.'),
-      ('Sep 21 · 07:54', 'Updated profile details.'),
-    ];
+    if (!widget.appState.isAuthenticated) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Text(
+            'Sign in to view your recent chat activity.',
+            style: theme.textTheme.bodyLarge,
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
 
+    final chats = widget.appState.chats;
+    if (chats.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Text(
+            'No chat history yet. Start a conversation to see it here.',
+            style: theme.textTheme.bodyLarge,
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    final recentChats = chats.take(20).toList();
     return ListView.separated(
       padding: const EdgeInsets.all(24),
-      itemCount: activity.length + 1,
+      itemCount: recentChats.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, index) {
-        if (index == activity.length) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 16.0),
-            child: OutlinedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.download_outlined),
-              label: const Text('Download activity log'),
-            ),
-          );
-        }
-
-        final entry = activity[index];
+        final chat = recentChats[index];
+        final updated = chat.updatedAt.toLocal().toString().split('.').first;
+        final preview = chat.messages.isNotEmpty
+            ? chat.messages.last.content
+            : 'No messages yet';
         return ListTile(
           leading: CircleAvatar(
             backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
@@ -1215,8 +1461,13 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
               color: theme.colorScheme.primary,
             ),
           ),
-          title: Text(entry.$1),
-          subtitle: Text(entry.$2),
+          title: Text(chat.title ?? 'Untitled chat'),
+          subtitle: Text(
+            '$updated · $preview',
+            style: theme.textTheme.bodyMedium,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
         );
       },
     );

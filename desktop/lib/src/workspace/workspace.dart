@@ -4,43 +4,56 @@ import '../models/chat.dart';
 
 class ZenWorkspace extends StatelessWidget {
   final int selectedIndex;
-  final List? chats;
+  final List<Chat> chats;
   final String? selectedChatId;
+  final Chat? selectedChat;
   final VoidCallback? onCreateChat;
-  final ValueChanged<String>? onSendMessage;
+  final Future<void> Function(String)? onSendMessage;
+  final bool isSendingMessage;
+  final bool isChatLoading;
 
   const ZenWorkspace({
     super.key,
     this.selectedIndex = 0,
-    this.chats,
+    this.chats = const [],
     this.selectedChatId,
+    this.selectedChat,
     this.onCreateChat,
     this.onSendMessage,
+    this.isSendingMessage = false,
+    this.isChatLoading = false,
   });
 
   @override
   Widget build(BuildContext context) {
     // If a chat is selected, show the chat view
-    if (selectedChatId != null && chats != null) {
-      final chatList = chats as List;
-      dynamic chat;
-      try {
-        chat = chatList.firstWhere((c) => c.id == selectedChatId);
-      } catch (e) {
-        chat = null;
+    if (selectedChatId != null) {
+      Chat? resolvedChat = selectedChat;
+      if (resolvedChat == null) {
+        try {
+          resolvedChat = chats.firstWhere((c) => c.id == selectedChatId);
+        } catch (_) {
+          resolvedChat = Chat(
+            id: selectedChatId!,
+            uid: '',
+            title: 'Chat',
+            messages: const [],
+          );
+        }
       }
-      if (chat != null) {
-        return Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: _ChatView(
-              chat: chat,
-              onSend: onSendMessage,
-              onCreate: onCreateChat,
-            ),
+      final bool isPlaceholder = selectedChat == null;
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: _ChatView(
+            chat: resolvedChat,
+            onSend: onSendMessage,
+            onCreate: onCreateChat,
+            isSending: isSendingMessage,
+            isLoading: isChatLoading || isPlaceholder,
           ),
-        );
-      }
+        ),
+      );
     }
 
     // If no chat selected and user is in main workspace, show the big centered composer
@@ -63,7 +76,10 @@ class ZenWorkspace extends StatelessWidget {
           ),
           const SizedBox(height: 40),
           // show big composer when no chat is selected
-          ZenChatComposer(onSend: onSendMessage),
+          ZenChatComposer(
+            onSend: onSendMessage,
+            isSending: isSendingMessage,
+          ),
           const SizedBox(height: 48),
           const Spacer(),
         ],
@@ -75,11 +91,19 @@ class ZenWorkspace extends StatelessWidget {
 }
 
 class _ChatView extends StatefulWidget {
-  final dynamic chat;
-  final ValueChanged<String>? onSend;
+  final Chat chat;
+  final Future<void> Function(String)? onSend;
   final VoidCallback? onCreate;
+  final bool isSending;
+  final bool isLoading;
 
-  const _ChatView({required this.chat, this.onSend, this.onCreate});
+  const _ChatView({
+    required this.chat,
+    this.onSend,
+    this.onCreate,
+    this.isSending = false,
+    this.isLoading = false,
+  });
 
   @override
   State<_ChatView> createState() => _ChatViewState();
@@ -109,10 +133,10 @@ class _ChatViewState extends State<_ChatView> {
     });
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
-    widget.onSend?.call(text);
+    await widget.onSend?.call(text);
     _ctrl.clear();
     // scroll to bottom a bit later
     Future.delayed(const Duration(milliseconds: 120), () {
@@ -128,8 +152,8 @@ class _ChatViewState extends State<_ChatView> {
 
   @override
   Widget build(BuildContext context) {
-    final chat = widget.chat;
-    final messages = chat.messages as List<ChatMessage>;
+  final chat = widget.chat;
+  final messages = chat.messages;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -157,42 +181,57 @@ class _ChatViewState extends State<_ChatView> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: ListView.builder(
-              controller: _scroll,
-              itemCount: messages.length,
-              itemBuilder: (context, i) {
-                final m = messages[i];
-                final bg = m.fromUser
-                    ? colorScheme.primary
-                    : colorScheme.surfaceVariant;
-                final fg = m.fromUser
-                    ? colorScheme.onPrimary
-                    : colorScheme.onSurface.withOpacity(0.92);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: Row(
-                    mainAxisAlignment: m.fromUser
-                        ? MainAxisAlignment.end
-                        : MainAxisAlignment.start,
-                    children: [
-                      Flexible(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
+            child: widget.isLoading && messages.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : messages.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 32.0),
+                          child: Text(
+                            'No messages yet. Say hello!',
+                            style: theme.textTheme.bodyLarge,
                           ),
-                          decoration: BoxDecoration(
-                            color: bg,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(m.text, style: TextStyle(color: fg)),
                         ),
+                      )
+                    : ListView.builder(
+                        controller: _scroll,
+                        itemCount: messages.length,
+                        itemBuilder: (context, i) {
+                          final m = messages[i];
+                          final bg = m.fromUser
+                              ? colorScheme.primary
+                              : colorScheme.surfaceVariant;
+                          final fg = m.fromUser
+                              ? colorScheme.onPrimary
+                              : colorScheme.onSurface.withOpacity(0.92);
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8.0),
+                            child: Row(
+                              mainAxisAlignment: m.fromUser
+                                  ? MainAxisAlignment.end
+                                  : MainAxisAlignment.start,
+                              children: [
+                                Flexible(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: bg,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      m.content,
+                                      style: TextStyle(color: fg),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
-                    ],
-                  ),
-                );
-              },
-            ),
           ),
           const SizedBox(height: 12),
           // bottom composer styled similar to big composer
@@ -262,7 +301,11 @@ class _ChatViewState extends State<_ChatView> {
                       _RoundActionButton(
                         icon: Icons.send_rounded,
                         tooltip: 'Send',
-                        onPressed: _send,
+                        onPressed: widget.isSending || widget.isLoading
+                            ? null
+                            : () {
+                                _send();
+                              },
                         backgroundColor: colorScheme.primary,
                         borderColor: Colors.transparent,
                         iconColor: colorScheme.onPrimary,
@@ -284,10 +327,16 @@ class SendIntent extends Intent {
 }
 
 class ZenChatComposer extends StatefulWidget {
-  final ValueChanged<String>? onSend;
+  final Future<void> Function(String)? onSend;
   final bool autofocus;
+  final bool isSending;
 
-  const ZenChatComposer({super.key, this.onSend, this.autofocus = true});
+  const ZenChatComposer({
+    super.key,
+    this.onSend,
+    this.autofocus = true,
+    this.isSending = false,
+  });
 
   @override
   State<ZenChatComposer> createState() => _ZenChatComposerState();
@@ -312,10 +361,11 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
     });
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
-    widget.onSend?.call(text);
+    if (widget.isSending) return;
+    await widget.onSend?.call(text);
     _ctrl.clear();
   }
 
@@ -399,6 +449,7 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
                           controller: _ctrl,
                           focusNode: _focus,
                           autofocus: widget.autofocus,
+                          enabled: !widget.isSending,
                           keyboardType: TextInputType.multiline,
                           maxLines: 3,
                           decoration: const InputDecoration(
@@ -416,13 +467,28 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
                     onPressed: () {},
                   ),
                   const SizedBox(width: 12),
-                  _RoundActionButton(
-                    icon: Icons.send_rounded,
-                    tooltip: 'Send message',
-                    onPressed: _send,
-                    backgroundColor: colorScheme.primary,
-                    borderColor: Colors.transparent,
-                    iconColor: colorScheme.onPrimary,
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      _RoundActionButton(
+                        icon: Icons.send_rounded,
+                        tooltip: 'Send message',
+                        onPressed: widget.isSending
+                            ? null
+                            : () {
+                                _send();
+                              },
+                        backgroundColor: colorScheme.primary,
+                        borderColor: Colors.transparent,
+                        iconColor: colorScheme.onPrimary,
+                      ),
+                      if (widget.isSending)
+                        const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        ),
+                    ],
                   ),
                 ],
               ),
@@ -437,7 +503,7 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
 class _RoundActionButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final Color? backgroundColor;
   final Color? borderColor;
   final Color? iconColor;
@@ -445,7 +511,7 @@ class _RoundActionButton extends StatelessWidget {
   const _RoundActionButton({
     required this.icon,
     required this.tooltip,
-    required this.onPressed,
+    this.onPressed,
     this.backgroundColor,
     this.borderColor,
     this.iconColor,
@@ -465,20 +531,29 @@ class _RoundActionButton extends StatelessWidget {
     final defaultIcon = colorScheme.onSurfaceVariant;
     const size = 44.0;
     const iconSize = 24.0;
+    final effectiveBackground = backgroundColor ?? defaultBackground;
+    final effectiveBorder = borderColor ?? defaultBorder;
+    final effectiveIcon = iconColor ?? defaultIcon;
+    final bool enabled = onPressed != null;
+
     return Tooltip(
       message: tooltip,
       child: InkResponse(
         onTap: onPressed,
         radius: size / 2 + 6,
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: backgroundColor ?? defaultBackground,
-            border: Border.all(color: borderColor ?? defaultBorder),
+        containedInkWell: true,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.5,
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: effectiveBackground,
+              border: Border.all(color: effectiveBorder),
+            ),
+            child: Icon(icon, color: effectiveIcon, size: iconSize),
           ),
-          child: Icon(icon, color: iconColor ?? defaultIcon, size: iconSize),
         ),
       ),
     );

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'home/home_page.dart';
+import 'state/app_state.dart';
 import 'state/user_preferences.dart';
 
 class ZenDesktopApp extends StatefulWidget {
@@ -13,12 +16,15 @@ class ZenDesktopApp extends StatefulWidget {
 class _ZenDesktopAppState extends State<ZenDesktopApp> {
   late ThemeMode _themeMode;
   late Color _seedColor;
+  late final AppState _appState;
 
   @override
   void initState() {
     super.initState();
     _themeMode = UserPreferences.themeMode;
     _seedColor = UserPreferences.seedColor;
+    _appState = AppState();
+    scheduleMicrotask(() => _appState.restoreSession());
   }
 
   void _handleThemeModeChanged(ThemeMode mode) {
@@ -54,11 +60,18 @@ class _ZenDesktopAppState extends State<ZenDesktopApp> {
         scaffoldBackgroundColor: const Color(0xFF101217),
       ),
       home: ZenHomePage(
+        appState: _appState,
         themeMode: _themeMode,
         onThemeModeChanged: _handleThemeModeChanged,
         seedColor: _seedColor,
         onSeedColorChanged: _handleSeedColorChanged,
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _appState.dispose();
+    super.dispose();
   }
 }

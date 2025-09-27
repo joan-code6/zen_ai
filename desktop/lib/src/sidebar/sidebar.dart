@@ -1,25 +1,35 @@
 import 'package:flutter/material.dart';
 
+import '../models/chat.dart';
+
 class ZenSidebar extends StatefulWidget {
   final int selectedIndex;
   final ValueChanged<int>? onItemSelected;
-  final List<dynamic>? chats; // simple dynamic to avoid import here
+  final List<Chat> chats;
   final ValueChanged<String>? onChatSelected;
   final VoidCallback? onNewChat;
   final VoidCallback? onUserPressed;
   final ValueChanged<String>? onChatRename;
   final ValueChanged<String>? onChatDelete;
+  final Future<void> Function()? onRefreshChats;
+  final bool isLoadingChats;
+  final bool isAuthenticated;
+  final String userDisplayName;
 
   const ZenSidebar({
     super.key,
     this.selectedIndex = 0,
     this.onItemSelected,
-    this.chats,
+    this.chats = const [],
     this.onChatSelected,
     this.onNewChat,
     this.onUserPressed,
     this.onChatRename,
     this.onChatDelete,
+    this.onRefreshChats,
+    this.isLoadingChats = false,
+    this.isAuthenticated = false,
+    this.userDisplayName = 'Guest',
   });
 
   @override
@@ -33,7 +43,7 @@ class _ZenSidebarState extends State<ZenSidebar> {
   Future<void> _showChatContextMenu(
     BuildContext context,
     Offset globalPosition,
-    dynamic chat,
+    Chat chat,
   ) async {
     if (widget.onChatRename == null && widget.onChatDelete == null) {
       return;
@@ -192,7 +202,7 @@ class _ZenSidebarState extends State<ZenSidebar> {
             ),
 
             // quick list of chats
-            if (widget.chats != null) ...[
+            if (widget.chats.isNotEmpty || widget.isLoadingChats) ...[
               const SizedBox(height: 8),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
@@ -203,12 +213,39 @@ class _ZenSidebarState extends State<ZenSidebar> {
                     maxWidth: 160,
                     child: Padding(
                       padding: const EdgeInsets.only(left: 8.0),
-                      child: Text(
-                        'Chats',
-                        style: Theme.of(context).textTheme.titleSmall,
-                        maxLines: 1,
-                        softWrap: false,
-                        overflow: TextOverflow.ellipsis,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Chats',
+                              style: Theme.of(context).textTheme.titleSmall,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (widget.isLoadingChats)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 4.0),
+                              child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            )
+                          else if (widget.onRefreshChats != null)
+                            IconButton(
+                              icon: const Icon(Icons.refresh, size: 18),
+                              tooltip: 'Refresh chats',
+                              padding: EdgeInsets.zero,
+                              onPressed: () {
+                                widget.onRefreshChats?.call();
+                              },
+                            ),
+                        ],
                       ),
                     ),
                   ),
@@ -222,9 +259,9 @@ class _ZenSidebarState extends State<ZenSidebar> {
                   children: [
                     ListView.builder(
                       padding: const EdgeInsets.only(bottom: 88.0),
-                      itemCount: widget.chats!.length,
+                      itemCount: widget.chats.length,
                       itemBuilder: (ctx, i) {
-                        final c = widget.chats![i];
+                        final c = widget.chats[i];
                         return Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 8.0),
                           child: GestureDetector(
@@ -284,7 +321,7 @@ class _ZenSidebarState extends State<ZenSidebar> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          c.title,
+                                          c.title ?? 'Untitled chat',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -360,7 +397,9 @@ class _ZenSidebarState extends State<ZenSidebar> {
                           ).colorScheme.primary.withAlpha((0.1 * 255).round()),
                         ),
                         child: Icon(
-                          Icons.account_circle_outlined,
+                          widget.isAuthenticated
+                              ? Icons.account_circle_outlined
+                              : Icons.login,
                           color: Theme.of(context).colorScheme.primary,
                         ),
                       ),
@@ -372,7 +411,9 @@ class _ZenSidebarState extends State<ZenSidebar> {
                           child: Padding(
                             padding: const EdgeInsets.only(left: 12.0),
                             child: Text(
-                              'Bennet',
+                              widget.isAuthenticated
+                                  ? widget.userDisplayName
+                                  : 'Sign in',
                               style: Theme.of(context).textTheme.titleSmall
                                   ?.copyWith(fontWeight: FontWeight.w600),
                               maxLines: 1,

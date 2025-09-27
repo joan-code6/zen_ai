@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/auth.dart';
+
 class UserPreferences {
   static const _themeModeKey = 'themeMode';
   static const _seedColorKey = 'seedColor';
   static const _notificationsKey = 'notificationsEnabled';
   static const _smartRepliesKey = 'smartReplySuggestions';
   static const _autoArchiveKey = 'autoArchiveChats';
+  static const _authSessionKey = 'authSession';
 
   static SharedPreferences? _prefs;
 
@@ -75,5 +78,18 @@ class UserPreferences {
 
   static Future<void> setAutoArchiveChats(bool value) async {
     await _preferences.setBool(_autoArchiveKey, value);
+  }
+
+  static AuthSession? get authSession {
+    final json = _preferences.getString(_authSessionKey);
+    return AuthSession.decode(json);
+  }
+
+  static Future<void> setAuthSession(AuthSession session) async {
+    await _preferences.setString(_authSessionKey, session.encode());
+  }
+
+  static Future<void> clearAuthSession() async {
+    await _preferences.remove(_authSessionKey);
   }
 }
