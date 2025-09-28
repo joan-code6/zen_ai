@@ -956,6 +956,14 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
     }
   }
 
+  Future<void> _handleGoogleSignIn() async {
+    FocusScope.of(context).unfocus();
+    final success = await widget.appState.loginWithGoogle();
+    if (success && mounted) {
+      widget.onClose();
+    }
+  }
+
   Future<void> _openCustomColorPicker() async {
     final selectedColor = await showDialog<Color>(
       context: context,
@@ -1326,6 +1334,45 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                 ),
               ),
               const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Divider(
+                      color: theme.colorScheme.outlineVariant,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'Or continue with',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Divider(
+                      color: theme.colorScheme.outlineVariant,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: isBusy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.g_translate, size: 22),
+                  label: const Text('Continue with Google'),
+                  onPressed: isBusy ? null : _handleGoogleSignIn,
+                ),
+              ),
+              const SizedBox(height: 12),
               Align(
                 alignment: Alignment.center,
                 child: TextButton(
@@ -1354,6 +1401,10 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
     final expiryLabel = expiry != null
         ? '${expiry.toLocal().toString().split('.').first}'
         : 'Token expiry unknown';
+    final displayName = widget.appState.displayName;
+    final photoUrl = widget.appState.photoUrl;
+    final primaryLabel =
+      displayName != null && displayName.isNotEmpty ? displayName : email;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -1364,14 +1415,20 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
             children: [
               CircleAvatar(
                 radius: 32,
-                backgroundColor: theme.colorScheme.primary.withOpacity(0.14),
-                child: Text(
-                  email.isNotEmpty ? email[0].toUpperCase() : '?',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
+                backgroundColor: photoUrl != null && photoUrl.isNotEmpty
+                  ? Colors.transparent
+                  : theme.colorScheme.primary.withOpacity(0.14),
+                backgroundImage:
+                  photoUrl != null && photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                child: photoUrl != null && photoUrl.isNotEmpty
+                  ? null
+                  : Text(
+                    primaryLabel.isNotEmpty ? primaryLabel[0].toUpperCase() : '?',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -1379,12 +1436,21 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      email,
+                      primaryLabel,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
+                    if (email.isNotEmpty && email != primaryLabel) ...[
+                      Text(
+                        email,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                    ],
                     Text(
                       'UID · $uid',
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -1412,6 +1478,14 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
           Card(
             child: Column(
               children: [
+                if (displayName != null && displayName.isNotEmpty) ...[
+                  ListTile(
+                    leading: const Icon(Icons.person_outline),
+                    title: const Text('Display name'),
+                    subtitle: Text(displayName),
+                  ),
+                  const Divider(height: 1),
+                ],
                 ListTile(
                   leading: const Icon(Icons.mail_outline),
                   title: const Text('Email'),
@@ -1455,6 +1529,16 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                           tooltip: 'Refresh chats',
                           onPressed: widget.appState.fetchChats,
                         ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.celebration_outlined),
+                  title: const Text('Account status'),
+                  subtitle: Text(
+                    widget.appState.isNewUser
+                      ? 'Recently linked. Explore your workspace!'
+                      : 'Signed in user',
+                  ),
                 ),
               ],
             ),

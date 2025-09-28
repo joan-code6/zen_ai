@@ -102,6 +102,31 @@ class BackendService {
     );
   }
 
+  static Future<AuthSession> googleSignIn({
+    String? idToken,
+    String? accessToken,
+    String? requestUri,
+  }) async {
+    if ((idToken == null || idToken.isEmpty) && (accessToken == null || accessToken.isEmpty)) {
+      throw ArgumentError('Either idToken or accessToken must be provided');
+    }
+
+    final payload = <String, dynamic>{
+      if (idToken != null && idToken.isNotEmpty) 'idToken': idToken,
+      if (accessToken != null && accessToken.isNotEmpty) 'accessToken': accessToken,
+      if (requestUri != null && requestUri.isNotEmpty) 'requestUri': requestUri,
+    };
+
+    final data = await _post('/auth/google-signin', payload);
+    if (data is Map<String, dynamic>) {
+      return AuthSession.fromLoginResponse(data);
+    }
+    throw BackendException(
+      statusCode: 500,
+      message: 'Invalid google-signin response',
+    );
+  }
+
   static Future<Map<String, dynamic>> verifyToken(String idToken) async {
     final payload = {'idToken': idToken};
     final data = await _post('/auth/verify-token', payload);

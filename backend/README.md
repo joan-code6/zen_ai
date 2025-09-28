@@ -6,7 +6,7 @@ This folder hosts the Flask API for the Zen assistant. The current milestone cov
 
 - Environment-driven configuration via `.env`
 - Firebase Admin SDK bootstrapped with a service-account key
-- REST endpoints for sign-up, email/password login, and ID-token verification
+- REST endpoints for sign-up, email/password login, Google Sign-In exchange, and ID-token verification
 - Firestore-backed chat storage (create, list, update, delete)
 - Gemini-powered conversation replies with history-aware prompts (default model: `gemini-2.0-flash`)
 - Health check endpoint for monitoring (`/health`)
@@ -70,6 +70,18 @@ Authenticate an email/password user via Firebase's Identity Toolkit. Requires `F
 - **Responses:**
   - `200 OK` — Returns `{ idToken, refreshToken, expiresIn, localId, email }`
   - `503 Service Unavailable` — API key not configured
+
+### `POST /auth/google-signin`
+Exchange a Google ID token or access token for Firebase credentials. Requires `FIREBASE_WEB_API_KEY` and Google Sign-In enabled in Firebase.
+
+- **Body:** `{ "idToken": "<google-id-token>" }`
+- **Optional fields:**
+   - `accessToken` — Google OAuth access token, used when provided by the client
+   - `requestUri` — Any valid HTTP/HTTPS URL allowed by Firebase (defaults to `http://localhost`)
+- **Responses:**
+   - `200 OK` — Returns `{ idToken, refreshToken, expiresIn, localId, email, displayName, photoUrl, isNewUser }
+   - `503 Service Unavailable` — API key not configured
+   - `401 Unauthorized` — Invalid Google credential or Firebase rejected the request
 
 ### `POST /auth/verify-token`
 Validate a Firebase ID token issued to the client.
