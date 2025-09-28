@@ -20,6 +20,8 @@ from ..firebase import get_firestore_client
 chats_bp = Blueprint("chats", __name__, url_prefix="/chats")
 log = logging.getLogger(__name__)
 
+DEFAULT_INLINE_ATTACHMENT_MAX_BYTES = 350_000
+
 
 def _parse_json_body() -> dict[str, Any]:
     if request.is_json:
@@ -167,6 +169,84 @@ def _compose_message_content(base_content: str, file_ids: Iterable[str], files_d
             content = attachments_text
 
     return content
+
+
+def _max_inline_attachment_bytes() -> int:
+    try:
+        value = int(current_app.config.get("MAX_INLINE_ATTACHMENT_BYTES", DEFAULT_INLINE_ATTACHMENT_MAX_BYTES))
+        return max(1, value)
+    except (TypeError, ValueError):
+        return DEFAULT_INLINE_ATTACHMENT_MAX_BYTES
+
+
+def _build_attachment_descriptors(file_ids: Iterable[str], files_data: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    descriptors: list[dict[str, Any]] = []
+    max_inline_bytes = _max_inline_attachment_bytes()
+
+    for file_id in file_ids or []:
+        file_info = files_data.get(file_id) or {}
+        if not file_info:
+            continue
+
+        cached_descriptor = file_info.get("_gemini_descriptor")
+        if cached_descriptor:
+            descriptors.append(cached_descriptor)
+            continue
+
+        storage_path = file_info.get("storagePath")
+        if not storage_path:
+            continue
+
+        try:
+            absolute_path = _resolve_storage_path(storage_path)
+        except RuntimeError:
+            continue
+
+        if not absolute_path.exists():
+            continue
+
+        mime_type = file_info.get("mimeType") or mimetypes.guess_type(absolute_path.name)[0]
+        if not mime_type:
+            continue
+
+        try:
+            size = absolute_path.stat().st_size
+        except OSError:
+            continue
+
+        if size <= max_inline_bytes:
+            try:
+                data_bytes = absolute_path.read_bytes()
+            except OSError as exc:
+                log.debug("Unable to read file %s for inline attachment: %s", absolute_path, exc)
+                continue
+
+            descriptor = {
+                "type": "bytes",
+                "mime_type": mime_type,
+                "data": data_bytes,
+            }
+        else:
+            descriptor = {
+                "type": "upload",
+                "mime_type": mime_type,
+                "path": str(absolute_path),
+            }
+
+        file_info["_gemini_descriptor"] = descriptor
+        descriptors.append(descriptor)
+
+    return descriptors
+
+
+def _prepare_message_parts(content: str, file_ids: Iterable[str], files_data: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    text = (content or "").strip()
+    if text:
+        parts.append({"type": "text", "text": text})
+
+    parts.extend(_build_attachment_descriptors(file_ids, files_data))
+    return parts
 
 
 def _get_chat_ref(chat_id: str):
@@ -867,13 +947,31 @@ def add_message(chat_id: str) -> tuple[Any, int]:
         files_cache.update(extra_files)
 
     for _, data in history_records:
-        message_content = _compose_message_content(data.get("content", ""), data.get("fileIds", []), files_cache)
+        message_file_ids = [fid for fid in (data.get("fileIds", []) or []) if isinstance(fid, str) and fid]
+        message_content = _compose_message_content(data.get("content", ""), message_file_ids, files_cache)
+        message_parts = _prepare_message_parts(message_content, message_file_ids, files_cache)
         history_messages.append(
             {
                 "role": data.get("role", "user"),
                 "content": message_content,
+                "parts": message_parts,
             }
         )
+
+    latest_user_text = next(
+        (msg.get("content", "") for msg in reversed(history_messages) if msg.get("role") == "user" and msg.get("content")),
+        "",
+    )
+
+    if latest_user_text:
+        language_instruction = (
+            "Respond in the same language as the most recent user message. Mirror the language used here without translating unless asked."
+        )
+    else:
+        language_instruction = (
+            "Respond in the same language as the most recent user message when it exists. If the language is unclear, ask the user to clarify before answering."
+        )
+    history_messages.append({"role": "system", "content": language_instruction})
 
     try:
         ai_reply = generate_reply(history_messages, api_key=gemini_api_key)
@@ -911,7 +1009,7 @@ def add_message(chat_id: str) -> tuple[Any, int]:
     updated_title: str | None = None
 
     if should_update_title:
-        user_prompt_for_title = user_message_data.get("content", "") or history_messages[-1].get("content", "")
+        user_prompt_for_title = user_message_data.get("content", "") or latest_user_text
         try:
             updated_title = generate_chat_title(
                 user_message=user_prompt_for_title,

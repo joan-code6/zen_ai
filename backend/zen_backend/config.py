@@ -19,6 +19,7 @@ class AppConfig:
     firebase_web_api_key: Optional[str]
     gemini_api_key: Optional[str]
     uploads_dir: Path
+    max_inline_attachment_bytes: int
     firestore_database_id: Optional[str] = None
 
 
@@ -71,11 +72,20 @@ def load_config() -> AppConfig:
 
     uploads_dir.mkdir(parents=True, exist_ok=True)
 
+    max_inline_attachment_raw = os.getenv("MAX_INLINE_ATTACHMENT_BYTES", "350000")
+    try:
+        max_inline_attachment_bytes = max(1, int(max_inline_attachment_raw))
+    except ValueError as exc:
+        raise ConfigError(
+            "MAX_INLINE_ATTACHMENT_BYTES must be an integer representing bytes"
+        ) from exc
+
     return AppConfig(
         port=port,
         firebase_credentials_path=credentials_path,
         firebase_web_api_key=firebase_web_api_key,
         gemini_api_key=gemini_api_key,
-        firestore_database_id=firestore_database_id,
         uploads_dir=uploads_dir,
+        max_inline_attachment_bytes=max_inline_attachment_bytes,
+        firestore_database_id=firestore_database_id,
     )

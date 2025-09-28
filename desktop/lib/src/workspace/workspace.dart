@@ -7,6 +7,16 @@ typedef SendMessageCallback = Future<void> Function(
   List<String> fileIds,
 });
 
+class ComposerAttachment {
+  final String id;
+  final String fileName;
+
+  const ComposerAttachment({
+    required this.id,
+    required this.fileName,
+  });
+}
+
 class ZenWorkspace extends StatelessWidget {
   final int selectedIndex;
   final List<Chat> chats;
@@ -16,6 +26,8 @@ class ZenWorkspace extends StatelessWidget {
   final SendMessageCallback? onSendMessage;
   final Future<ChatFile?> Function(String chatId)? onUploadFile;
   final Future<ChatFile?> Function()? onUploadFileForComposer;
+  final List<ComposerAttachment> composerAttachments;
+  final void Function(String attachmentId)? onRemoveComposerAttachment;
   final bool isSendingMessage;
   final bool isChatLoading;
 
@@ -29,6 +41,8 @@ class ZenWorkspace extends StatelessWidget {
     this.onSendMessage,
     this.onUploadFile,
     this.onUploadFileForComposer,
+    this.composerAttachments = const [],
+    this.onRemoveComposerAttachment,
     this.isSendingMessage = false,
     this.isChatLoading = false,
   });
@@ -90,6 +104,8 @@ class ZenWorkspace extends StatelessWidget {
             onSend: onSendMessage,
             isSending: isSendingMessage,
             onUploadFile: onUploadFileForComposer,
+            pendingAttachments: composerAttachments,
+            onRemoveAttachment: onRemoveComposerAttachment,
           ),
           const SizedBox(height: 48),
           const Spacer(),
@@ -549,11 +565,53 @@ class _PendingAttachmentChip extends StatelessWidget {
   }
 }
 
+class _ComposerPendingAttachmentChip extends StatelessWidget {
+  final ComposerAttachment attachment;
+  final VoidCallback? onRemove;
+  final bool enabled;
+
+  const _ComposerPendingAttachmentChip({
+    required this.attachment,
+    required this.enabled,
+    this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: attachment.fileName,
+      child: InputChip(
+        avatar: const Icon(Icons.attach_file, size: 18),
+        label: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 220),
+          child: Text(
+            attachment.fileName,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        onDeleted: enabled ? onRemove : null,
+        deleteIcon: Icon(
+          Icons.close,
+          size: 18,
+          color: enabled ? null : theme.disabledColor,
+        ),
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        showCheckmark: false,
+        selected: false,
+        isEnabled: enabled,
+      ),
+    );
+  }
+}
+
 class ZenChatComposer extends StatefulWidget {
   final SendMessageCallback? onSend;
   final bool autofocus;
   final bool isSending;
   final Future<ChatFile?> Function()? onUploadFile;
+  final List<ComposerAttachment> pendingAttachments;
+  final void Function(String attachmentId)? onRemoveAttachment;
 
   const ZenChatComposer({
     super.key,
@@ -561,6 +619,8 @@ class ZenChatComposer extends StatefulWidget {
     this.autofocus = true,
     this.isSending = false,
     this.onUploadFile,
+    this.pendingAttachments = const [],
+    this.onRemoveAttachment,
   });
 
   @override
@@ -589,7 +649,9 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
 
   Future<void> _send() async {
     final text = _ctrl.text.trim();
-    if (text.isEmpty) return;
+    final hasText = text.isNotEmpty;
+    final hasAttachments = widget.pendingAttachments.isNotEmpty;
+    if (!hasText && !hasAttachments) return;
     if (widget.isSending) return;
     await widget.onSend?.call(text, fileIds: const []);
     _ctrl.clear();
@@ -623,6 +685,25 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (widget.pendingAttachments.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                for (final attachment in widget.pendingAttachments)
+                  _ComposerPendingAttachmentChip(
+                    attachment: attachment,
+                    enabled: !(widget.isSending || _isUploadingFile),
+                    onRemove: widget.onRemoveAttachment == null
+                        ? null
+                        : () => widget.onRemoveAttachment!(attachment.id),
+                  ),
+              ],
+            ),
+          ),
         Align(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 940),

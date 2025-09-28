@@ -27,6 +27,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
         FIRESTORE_DATABASE_ID=config.firestore_database_id,
         UPLOADS_DIR=str(config.uploads_dir),
         MAX_UPLOAD_SIZE=10 * 1024 * 1024,
+        MAX_INLINE_ATTACHMENT_BYTES=config.max_inline_attachment_bytes,
     )
 
     CORS(app)

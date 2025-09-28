@@ -12,6 +12,7 @@ Configuration / environment variables
 - `GEMINI_API_KEY` — API key for the Gemini (genai) model used by the AI endpoints.
 - `FIRESTORE_DATABASE_ID` (optional) — if you use a named Firestore database, set this.
 - `UPLOADS_DIR` (optional) — directory where uploaded chat files will be stored. Defaults to `backend/uploads`.
+- `MAX_INLINE_ATTACHMENT_BYTES` (optional) — maximum size (bytes) of an attachment that will be sent inline to Gemini (defaults to 350000 bytes).
 
 Common response shape for errors
 
@@ -258,8 +259,9 @@ Notes about authentication/authorization:
   1. Validates the `uid`, `content` (unless files are attached), and optional `fileIds`.
   2. Stores the user message in the chat's `messages` subcollection and updates chat.updatedAt.
   3. If `GEMINI_API_KEY` is not configured, returns 503 not_configured and includes the stored `userMessage` in the response.
-  4. If `GEMINI_API_KEY` is configured, the backend reads the full message history (including text previews of any referenced files and the optional systemPrompt), calls the Gemini model via the `genai` client, stores an assistant message with the model reply, and returns both `userMessage` and `assistantMessage`.
-  5. When the first assistant reply is successfully generated, the backend asks Gemini to produce a concise chat title (≤6 words) for the conversation and updates the chat record if the existing title is still the default or matches the user's opening question.
+  4. If `GEMINI_API_KEY` is configured, the backend reads the full message history (including text previews of any referenced files and the optional systemPrompt), attaches supported files inline (currently image formats up to the size limit), calls the Gemini model via the `genai` client, stores an assistant message with the model reply, and returns both `userMessage` and `assistantMessage`.
+  5. Replies are generated in the same language as the most recent user message; if the language is ambiguous, the model is instructed to request clarification instead of defaulting to English.
+  6. When the first assistant reply is successfully generated, the backend asks Gemini to produce a concise chat title (≤6 words) in the same language as the user's opening message and updates the chat record if the existing title is still the default or matches the user's opening question.
 
 - Success 201 response body (when Gemini is configured):
 
@@ -274,7 +276,7 @@ Notes about authentication/authorization:
 
 ### File attachments for chats
 
-File handling endpoints let clients upload supporting documents that can be referenced in subsequent chat messages. Uploaded files are stored on disk under `UPLOADS_DIR` and described in a `files` subcollection for each chat. When a message references uploaded files via `fileIds`, the backend includes any stored text preview into the prompt that is sent to Gemini.
+File handling endpoints let clients upload supporting documents that can be referenced in subsequent chat messages. Uploaded files are stored on disk under `UPLOADS_DIR` and described in a `files` subcollection for each chat. When a message references uploaded files via `fileIds`, the backend includes any stored text preview into the message content and, for supported binary formats (images within the configured size limit), streams the raw data inline to Gemini so the model can interpret the actual file rather than relying on the filename alone.
 
 #### POST /chats/<chat_id>/files
 - Description: Upload a file for a chat (multipart/form-data).

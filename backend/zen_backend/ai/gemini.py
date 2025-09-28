@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, Sequence
+from typing import Any, Dict, Iterable, Sequence
 import logging
 
 from google import genai
+from google.genai import types
 
 DEFAULT_MODEL = "gemini-2.0-flash"
 
@@ -16,8 +17,11 @@ class GeminiAPIError(RuntimeError):
     """Raised when the Gemini API responds with an error."""
 
 
-def _format_messages(messages: Sequence[dict[str, str]]) -> list[dict[str, object]]:
-    contents: list[dict[str, object]] = []
+def _format_messages(
+    messages: Sequence[dict[str, Any]],
+    client: genai.Client,
+) -> list[types.Content]:
+    contents: list[types.Content] = []
 
     role_map = {
         "user": "user",
@@ -28,10 +32,76 @@ def _format_messages(messages: Sequence[dict[str, str]]) -> list[dict[str, objec
 
     for message in messages:
         role = role_map.get(message.get("role", "user"), "user")
-        text = message.get("content", "").strip()
-        if not text:
+        parts: list[Any] = []
+
+        raw_parts = message.get("parts")
+        if isinstance(raw_parts, Sequence):
+            for part in raw_parts:
+                if isinstance(part, types.Part):
+                    parts.append(part)
+                    continue
+
+                if isinstance(part, str):
+                    text_value = part.strip()
+                    if text_value:
+                        parts.append(types.Part.from_text(text_value))
+                    continue
+
+                if not isinstance(part, dict):
+                    continue
+
+                kind = part.get("type")
+
+                if kind == "text" or "text" in part:
+                    text_value = str(part.get("text", part.get("content", ""))).strip()
+                    if text_value:
+                        parts.append(types.Part.from_text(text_value))
+                elif kind == "bytes" or "data" in part:
+                    data = part.get("data")
+                    mime_type = part.get("mime_type")
+                    if isinstance(data, (bytes, bytearray)) and mime_type:
+                        try:
+                            parts.append(types.Part.from_bytes(data=bytes(data), mime_type=str(mime_type)))
+                        except Exception as exc:
+                            log.warning("Failed to attach inline bytes (%s): %s", mime_type, exc)
+                elif kind == "upload":
+                    file_ref = part.get("file_ref")
+                    if file_ref is None:
+                        path = part.get("path")
+                        mime_type = part.get("mime_type")
+                        if not path or not mime_type:
+                            continue
+                        try:
+                            with open(path, "rb") as fh:
+                                file_ref = client.files.upload(file=fh, config={"mime_type": mime_type})
+                            part["file_ref"] = file_ref
+                        except FileNotFoundError:
+                            log.warning("Attachment file not found: %s", path)
+                            continue
+                        except Exception as exc:
+                            log.warning("Failed to upload attachment %s: %s", path, exc)
+                            continue
+                    parts.append(file_ref)
+                elif kind == "inline_data" and "inline_data" in part:
+                    inline_data = part.get("inline_data") or {}
+                    data = inline_data.get("data")
+                    mime_type = inline_data.get("mime_type")
+                    if isinstance(data, (bytes, bytearray)) and mime_type:
+                        try:
+                            parts.append(types.Part.from_bytes(data=bytes(data), mime_type=str(mime_type)))
+                        except Exception as exc:
+                            log.warning("Failed to attach inline data (%s): %s", mime_type, exc)
+
+        text = message.get("content", "")
+        if isinstance(text, str):
+            text = text.strip()
+            if text and not parts:
+                parts.append(types.Part.from_text(text))
+
+        if not parts:
             continue
-        contents.append({"role": role, "parts": [{"text": text}]})
+
+        contents.append(types.Content(role=role, parts=parts))
 
     return contents
 
@@ -45,7 +115,7 @@ def _get_client(api_key: str) -> genai.Client:
 
 
 def generate_reply(
-    messages: Sequence[dict[str, str]],
+    messages: Sequence[dict[str, Any]],
     api_key: str,
     model: str = DEFAULT_MODEL,
     safety_settings: Iterable[dict[str, object]] | None = None,
@@ -53,11 +123,11 @@ def generate_reply(
 ) -> str:
     """Call the Gemini API with the provided conversation history."""
 
-    contents = _format_messages(messages)
+    client = _get_client(api_key)
+
+    contents = _format_messages(messages, client)
     if not contents:
         raise GeminiAPIError("At least one message with content is required.")
-
-    client = _get_client(api_key)
 
     if safety_settings:
         # The installed genai SDK's Models.generate_content does not accept
@@ -127,7 +197,9 @@ def generate_chat_title(
 
     instruction = (
         "Create a short, descriptive title for this conversation in six words or fewer. "
+        "Always write the title in the same language as the user's message. "
         "Return only the title text without punctuation at the end."
+        "Try to include the most important information of the conversation and the question in the title while still trying to follow the six words rule."
     )
 
     conversation = (

@@ -4,6 +4,7 @@ import 'package:flex_color_picker/flex_color_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mime/mime.dart';
 
 import '../models/chat.dart';
 import '../workspace/workspace.dart';
@@ -55,6 +56,7 @@ class _ZenHomePageState extends State<ZenHomePage> {
   final TextEditingController _spotlightController = TextEditingController();
   String _spotlightQuery = '';
   bool _showUserOverlay = false;
+  final List<_ComposerPendingAttachment> _composerPendingAttachments = [];
 
   @override
   void initState() {
@@ -191,6 +193,7 @@ class _ZenHomePageState extends State<ZenHomePage> {
     setState(() {
       _selectedChatId = id;
       _selectedIndex = 0; // focus workspace which shows chat
+      _composerPendingAttachments.clear();
     });
     _preloadChat(id);
   }
@@ -289,7 +292,11 @@ class _ZenHomePageState extends State<ZenHomePage> {
   Future<void> _sendMessage(String text, {List<String> fileIds = const []}) async {
     final trimmed = text.trim();
     final hasText = trimmed.isNotEmpty;
-    final hasFiles = fileIds.isNotEmpty;
+    final draftsToUpload = _selectedChatId == null
+        ? List<_ComposerPendingAttachment>.from(_composerPendingAttachments)
+        : const <_ComposerPendingAttachment>[];
+    final hasDraftFiles = draftsToUpload.isNotEmpty;
+    final hasFiles = fileIds.isNotEmpty || hasDraftFiles;
     if (!hasText && !hasFiles) return;
 
     if (!_appState.isAuthenticated) {
@@ -303,27 +310,63 @@ class _ZenHomePageState extends State<ZenHomePage> {
       return;
     }
 
-    String? chatId = _selectedChatId;
+    String? pendingChatId = _selectedChatId;
 
-    if (chatId == null) {
+    if (pendingChatId == null) {
       final created = await _appState.createChat(
         title: _deriveChatTitle(hasText ? trimmed : ''),
       );
       if (created == null) return;
-      chatId = created.id;
+      pendingChatId = created.id;
       if (!mounted) return;
       setState(() {
-        _selectedChatId = chatId;
+        _selectedChatId = pendingChatId;
         _selectedIndex = 0;
       });
     }
 
+    final String resolvedChatId = pendingChatId;
+    final List<String> allFileIds = List<String>.from(fileIds);
+    final List<String> uploadedDraftIds = [];
+    var uploadFailed = false;
+
+    if (draftsToUpload.isNotEmpty) {
+      for (final draft in draftsToUpload) {
+        final uploaded = await _appState.uploadChatFile(
+          chatId: resolvedChatId,
+          fileName: draft.fileName,
+          bytes: draft.bytes,
+          mimeType: draft.mimeType,
+        );
+        if (uploaded == null) {
+          uploadFailed = true;
+          break;
+        }
+        allFileIds.add(uploaded.id);
+        uploadedDraftIds.add(draft.id);
+      }
+      if (uploadFailed) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('File upload failed. Please try again.')),
+          );
+        }
+        return;
+      }
+      if (mounted && uploadedDraftIds.isNotEmpty) {
+        setState(() {
+          final idsToRemove = uploadedDraftIds.toSet();
+          _composerPendingAttachments.removeWhere((pending) => idsToRemove.contains(pending.id));
+        });
+      }
+    }
+
 	await _appState.sendMessage(
-		chatId: chatId,
+    chatId: resolvedChatId,
 		content: hasText ? trimmed : null,
-		fileIds: fileIds,
+		fileIds: allFileIds,
 	);
-	await _appState.ensureChatLoaded(chatId);
+  await _appState.ensureChatLoaded(resolvedChatId);
   }
 
   Future<ChatFile?> _uploadFileForChat(String chatId) async {
@@ -357,10 +400,12 @@ class _ZenHomePageState extends State<ZenHomePage> {
         );
         return null;
       }
+      final mimeType = _resolveMimeType(file, bytes);
       final uploaded = await _appState.uploadChatFile(
         chatId: chatId,
         fileName: file.name,
         bytes: bytes,
+        mimeType: mimeType,
       );
       if (uploaded != null) {
         await _appState.ensureChatLoaded(chatId);
@@ -389,20 +434,69 @@ class _ZenHomePageState extends State<ZenHomePage> {
       return null;
     }
 
-    String? chatId = _selectedChatId;
-    if (chatId == null) {
-      final created = await _appState.createChat(title: 'New chat');
-      if (created == null) {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) {
         return null;
       }
-      chatId = created.id;
+      final file = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        if (!mounted) return null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to read the selected file. Please try again.'),
+          ),
+        );
+        return null;
+      }
+      final mimeType = _resolveMimeType(file, bytes);
+      final attachment = _ComposerPendingAttachment(
+        id: 'pending-${DateTime.now().microsecondsSinceEpoch}',
+        fileName: file.name,
+        bytes: Uint8List.fromList(bytes),
+        mimeType: mimeType,
+      );
       if (!mounted) return null;
       setState(() {
-        _selectedChatId = chatId;
+        _composerPendingAttachments.add(attachment);
         _selectedIndex = 0;
       });
+      return null;
+    } catch (e) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('File selection failed: $e')),
+      );
+      return null;
     }
-    return _uploadFileForChat(chatId);
+  }
+
+  void _removeComposerAttachment(String id) {
+    setState(() {
+      _composerPendingAttachments.removeWhere((attachment) => attachment.id == id);
+    });
+  }
+
+  String? _resolveMimeType(PlatformFile file, Uint8List bytes) {
+    List<int>? headerBytes;
+    if (bytes.isNotEmpty) {
+      final headerLength = bytes.length >= 32 ? 32 : bytes.length;
+      headerBytes = bytes.sublist(0, headerLength);
+    }
+    String? type;
+    final filePath = file.path;
+    if (filePath != null && filePath.isNotEmpty) {
+      type = lookupMimeType(filePath, headerBytes: headerBytes);
+    }
+    type ??= lookupMimeType(file.name, headerBytes: headerBytes);
+    if (type == 'application/octet-stream') {
+      return null;
+    }
+    return type;
   }
 
   void _openUserOverlay() {
@@ -462,6 +556,15 @@ class _ZenHomePageState extends State<ZenHomePage> {
                         onSendMessage: _sendMessage,
                         onUploadFile: _uploadFileForChat,
                         onUploadFileForComposer: _uploadFileFromComposer,
+                        composerAttachments: _composerPendingAttachments
+                            .map(
+                              (pending) => ComposerAttachment(
+                                id: pending.id,
+                                fileName: pending.fileName,
+                              ),
+                            )
+                            .toList(),
+                        onRemoveComposerAttachment: _removeComposerAttachment,
                       ),
                     ),
 
@@ -1568,6 +1671,20 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
       },
     );
   }
+}
+
+class _ComposerPendingAttachment {
+  final String id;
+  final String fileName;
+  final Uint8List bytes;
+  final String? mimeType;
+
+  const _ComposerPendingAttachment({
+    required this.id,
+    required this.fileName,
+    required this.bytes,
+    required this.mimeType,
+  });
 }
 
 class _AccentColorOption {
