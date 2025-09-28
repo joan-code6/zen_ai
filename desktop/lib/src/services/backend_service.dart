@@ -69,37 +69,41 @@ class BackendService {
     required String password,
     String? displayName,
   }) async {
+    final trimmedName = displayName?.trim();
     final payload = {
       'email': email,
       'password': password,
-      if (displayName != null && displayName.isNotEmpty) 'displayName': displayName,
+      if (trimmedName != null && trimmedName.isNotEmpty) ...{
+        'displayName': trimmedName,
+        'display_name': trimmedName,
+      },
     };
     final data = await _post('/auth/signup', payload);
     if (data is Map<String, dynamic>) {
       return SignupResult.fromJson(data);
     }
-    throw BackendException(
-      statusCode: 500,
-      message: 'Invalid signup response',
-    );
+    throw BackendException(statusCode: 500, message: 'Invalid signup response');
   }
 
   static Future<AuthSession> login({
     required String email,
     required String password,
+    String? displayName,
   }) async {
+    final trimmedName = displayName?.trim();
     final payload = {
       'email': email,
       'password': password,
+      if (trimmedName != null && trimmedName.isNotEmpty) ...{
+        'displayName': trimmedName,
+        'display_name': trimmedName,
+      },
     };
     final data = await _post('/auth/login', payload);
     if (data is Map<String, dynamic>) {
       return AuthSession.fromLoginResponse(data);
     }
-    throw BackendException(
-      statusCode: 500,
-      message: 'Invalid login response',
-    );
+    throw BackendException(statusCode: 500, message: 'Invalid login response');
   }
 
   static Future<AuthSession> googleSignIn({
@@ -107,13 +111,15 @@ class BackendService {
     String? accessToken,
     String? requestUri,
   }) async {
-    if ((idToken == null || idToken.isEmpty) && (accessToken == null || accessToken.isEmpty)) {
+    if ((idToken == null || idToken.isEmpty) &&
+        (accessToken == null || accessToken.isEmpty)) {
       throw ArgumentError('Either idToken or accessToken must be provided');
     }
 
     final payload = <String, dynamic>{
       if (idToken != null && idToken.isNotEmpty) 'idToken': idToken,
-      if (accessToken != null && accessToken.isNotEmpty) 'accessToken': accessToken,
+      if (accessToken != null && accessToken.isNotEmpty)
+        'accessToken': accessToken,
       if (requestUri != null && requestUri.isNotEmpty) 'requestUri': requestUri,
     };
 
@@ -139,13 +145,84 @@ class BackendService {
     );
   }
 
+  static Future<UserProfile> fetchUserProfile({
+    required String uid,
+    required String idToken,
+  }) async {
+    final uri = await _buildUri('/users/$uid');
+    final response = await _http.get(
+      uri,
+      headers: _jsonHeaders({'Authorization': 'Bearer $idToken'}),
+    );
+    if (response.statusCode == 404) {
+      // Treat missing profile as an empty profile rather than an error.
+      return const UserProfile();
+    }
+
+    final data = _decodeResponse(response);
+    if (data is Map<String, dynamic>) {
+      final profileJson = data['profile'];
+      if (profileJson is Map<String, dynamic>) {
+        return UserProfile.fromJson(profileJson);
+      }
+    }
+    throw BackendException(
+      statusCode: 500,
+      message: 'Invalid profile response',
+    );
+  }
+
+  static Future<UserProfile> updateDisplayName({
+    required String uid,
+    required String idToken,
+    required String displayName,
+  }) async {
+    final uri = await _buildUri('/users/$uid');
+    final response = await _http.patch(
+      uri,
+      headers: _jsonHeaders({'Authorization': 'Bearer $idToken'}),
+      body: jsonEncode({
+        'displayName': displayName,
+        'display_name': displayName,
+      }),
+    );
+    if (response.statusCode == 204 || response.body.isEmpty) {
+      return fetchUserProfile(uid: uid, idToken: idToken);
+    }
+
+    final data = _decodeResponse(response);
+    if (data is Map<String, dynamic>) {
+      final profileJson = data['profile'];
+      if (profileJson is Map<String, dynamic>) {
+        return UserProfile.fromJson(profileJson);
+      }
+
+      final directProfile = <String, dynamic>{
+        if (data['display_name'] != null) 'display_name': data['display_name'],
+        if (data['displayName'] != null) 'display_name': data['displayName'],
+        if (data['created_at'] != null) 'created_at': data['created_at'],
+        if (data['createdAt'] != null) 'created_at': data['createdAt'],
+        if (data['updated_at'] != null) 'updated_at': data['updated_at'],
+        if (data['updatedAt'] != null) 'updated_at': data['updatedAt'],
+      };
+      if (directProfile.isNotEmpty) {
+        return UserProfile.fromJson(directProfile);
+      }
+    }
+
+    return fetchUserProfile(uid: uid, idToken: idToken);
+  }
+
   static Future<List<Chat>> listChats(String uid) async {
     final data = await _get('/chats', queryParameters: {'uid': uid});
     if (data is Map<String, dynamic>) {
       final items = data['items'];
       if (items is List) {
         return items
-            .map((item) => Chat.fromJson(item as Map<String, dynamic>, messages: []))
+            .map(
+              (item) =>
+                  Chat.fromJson(item as Map<String, dynamic>, messages: []),
+            )
             .toList()
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       }
@@ -275,8 +352,7 @@ class BackendService {
     String? mimeType,
   }) async {
     final uri = await _buildUri('/chats/$chatId/files');
-    final request = http.MultipartRequest('POST', uri)
-      ..fields['uid'] = uid;
+    final request = http.MultipartRequest('POST', uri)..fields['uid'] = uid;
 
     http.MultipartFile multipartFile;
     if (mimeType != null && mimeType.isNotEmpty) {
@@ -319,7 +395,10 @@ class BackendService {
     );
   }
 
-  static Future<dynamic> _get(String path, {Map<String, dynamic>? queryParameters}) async {
+  static Future<dynamic> _get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     final uri = await _buildUri(path, queryParameters: queryParameters);
     final response = await _http.get(uri, headers: _jsonHeaders());
     return _decodeResponse(response);
@@ -355,7 +434,10 @@ class BackendService {
     return _decodeResponse(response);
   }
 
-  static Future<Uri> _buildUri(String path, {Map<String, dynamic>? queryParameters}) async {
+  static Future<Uri> _buildUri(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     var base = await getBackendUrl();
     if (!base.endsWith('/')) base = '$base/';
     final normalizedPath = path.startsWith('/') ? path.substring(1) : path;
@@ -366,9 +448,9 @@ class BackendService {
         if (entry.value != null)
           entry.key: entry.value is List
               ? entry.value
-                  .where((element) => element != null)
-                  .map((element) => element.toString())
-                  .toList()
+                    .where((element) => element != null)
+                    .map((element) => element.toString())
+                    .toList()
               : entry.value.toString(),
     };
     return uri.replace(queryParameters: filtered.isEmpty ? null : filtered);
@@ -393,7 +475,8 @@ class BackendService {
       // ignore parse errors
     }
 
-    final message = errorBody?['message']?.toString() ??
+    final message =
+        errorBody?['message']?.toString() ??
         response.reasonPhrase ??
         'Request failed with status $statusCode';
     final code = errorBody?['error']?.toString();

@@ -19,7 +19,9 @@ void main() {
     await UserPreferences.init();
   });
 
-  testWidgets('Displays greeting and opens account overlay', (WidgetTester tester) async {
+  testWidgets('Displays greeting and opens account overlay', (
+    WidgetTester tester,
+  ) async {
     tester.binding.window.physicalSizeTestValue = const Size(1440, 900);
     tester.binding.window.devicePixelRatioTestValue = 1.0;
     addTearDown(() {
@@ -30,27 +32,29 @@ void main() {
     await tester.pumpWidget(const ZenDesktopApp());
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Hallo Bennet'), findsOneWidget);
+    expect(find.text('Hallo, wie geht es dir?'), findsOneWidget);
 
     final accountIconFinder = find.byIcon(Icons.account_circle_outlined);
     final loginIconFinder = find.byIcon(Icons.login);
     expect(
-      accountIconFinder.evaluate().isNotEmpty || loginIconFinder.evaluate().isNotEmpty,
+      accountIconFinder.evaluate().isNotEmpty ||
+          loginIconFinder.evaluate().isNotEmpty,
       isTrue,
       reason: 'Expected either the account or login icon to be present.',
     );
-    final userIconFinder =
-        accountIconFinder.evaluate().isNotEmpty ? accountIconFinder : loginIconFinder;
+    final userIconFinder = accountIconFinder.evaluate().isNotEmpty
+        ? accountIconFinder
+        : loginIconFinder;
 
     await tester.tap(userIconFinder);
     await tester.pumpAndSettle();
 
     expect(find.text('Account center'), findsOneWidget);
-  expect(find.text('Preferences'), findsWidgets);
+    expect(find.text('Preferences'), findsWidgets);
 
-  await tester.tap(find.text('Preferences').first);
-  await tester.pumpAndSettle();
+    await tester.tap(find.text('Preferences').first);
+    await tester.pumpAndSettle();
 
-  expect(find.text('Dark'), findsWidgets);
+    expect(find.text('Dark'), findsWidgets);
   });
 }

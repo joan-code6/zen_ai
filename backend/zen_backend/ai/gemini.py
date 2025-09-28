@@ -199,7 +199,7 @@ def generate_chat_title(
         "Create a short, descriptive title for this conversation in six words or fewer. "
         "Always write the title in the same language as the user's message. "
         "Return only the title text without punctuation at the end."
-        "Try to include the most important information of the conversation and the question in the title while still trying to follow the six words rule."
+        "Give me short, factual, and clear names for AI chat conversations. The names should act as bullet points and convey the essence of the content. No unnecessary words, no marketing, just a functional description."
     )
 
     conversation = (

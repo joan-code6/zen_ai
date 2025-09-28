@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from typing import Any
+import logging
 from urllib.parse import urlencode
 
 import requests
 from flask import Blueprint, current_app, jsonify, request
 from firebase_admin import auth as firebase_auth
 from firebase_admin import exceptions as firebase_exceptions
+
+from ..users.service import UserProfileStoreError, serialize_user_profile, upsert_user_profile
+
+log = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -55,6 +60,26 @@ def signup() -> tuple[Any, int]:
             HTTPStatus.INTERNAL_SERVER_ERROR,
         )
 
+    try:
+        profile = upsert_user_profile(
+            user_record.uid,
+            email=user_record.email,
+            display_name=user_record.display_name,
+        )
+    except UserProfileStoreError as exc:
+        log.exception("Failed to create profile for %s", user_record.uid)
+        try:
+            firebase_auth.delete_user(user_record.uid)
+        except firebase_exceptions.FirebaseError as delete_exc:
+            log.error("Unable to roll back Firebase user %s: %s", user_record.uid, delete_exc)
+        return (
+            jsonify({
+                "error": "profile_store_error",
+                "message": "Failed to persist user profile information. Please try again.",
+            }),
+            HTTPStatus.SERVICE_UNAVAILABLE,
+        )
+
     return (
         jsonify(
             {
@@ -62,6 +87,7 @@ def signup() -> tuple[Any, int]:
                 "email": user_record.email,
                 "displayName": user_record.display_name,
                 "emailVerified": user_record.email_verified,
+                "profile": serialize_user_profile(profile),
             }
         ),
         HTTPStatus.CREATED,
@@ -129,22 +155,49 @@ def google_signin() -> tuple[Any, int]:
         )
 
     data = response.json()
-    return (
-        jsonify(
-            {
-                "idToken": data.get("idToken"),
-                "refreshToken": data.get("refreshToken"),
-                "expiresIn": data.get("expiresIn"),
-                "localId": data.get("localId"),
-                "email": data.get("email"),
-                "displayName": data.get("displayName"),
-                "photoUrl": data.get("photoUrl"),
-                "isNewUser": data.get("isNewUser"),
-                "federatedId": data.get("federatedId"),
-            }
-        ),
-        HTTPStatus.OK,
-    )
+    uid = data.get("localId")
+
+    profile_payload: dict[str, Any] | None = None
+    if uid:
+        try:
+            profile = upsert_user_profile(
+                uid,
+                email=data.get("email"),
+                display_name=data.get("displayName"),
+                photo_url=data.get("photoUrl"),
+            )
+            profile_payload = serialize_user_profile(profile)
+        except UserProfileStoreError as exc:
+            log.exception("Failed to upsert profile for %s during Google sign-in", uid)
+            if data.get("isNewUser"):
+                try:
+                    firebase_auth.delete_user(uid)
+                except firebase_exceptions.FirebaseError as delete_exc:
+                    log.error("Unable to roll back Google user %s: %s", uid, delete_exc)
+                return (
+                    jsonify({
+                        "error": "profile_store_error",
+                        "message": "Failed to persist user profile information. Please try again.",
+                    }),
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+
+    response_payload = {
+        "idToken": data.get("idToken"),
+        "refreshToken": data.get("refreshToken"),
+        "expiresIn": data.get("expiresIn"),
+        "localId": uid,
+        "email": data.get("email"),
+        "displayName": data.get("displayName"),
+        "photoUrl": data.get("photoUrl"),
+        "isNewUser": data.get("isNewUser"),
+        "federatedId": data.get("federatedId"),
+    }
+
+    if profile_payload:
+        response_payload["profile"] = profile_payload
+
+    return jsonify(response_payload), HTTPStatus.OK
 
 
 @auth_bp.post("/login")
@@ -199,18 +252,46 @@ def login() -> tuple[Any, int]:
         )
 
     data = response.json()
-    return (
-        jsonify(
-            {
-                "idToken": data.get("idToken"),
-                "refreshToken": data.get("refreshToken"),
-                "expiresIn": data.get("expiresIn"),
-                "localId": data.get("localId"),
-                "email": data.get("email"),
-            }
-        ),
-        HTTPStatus.OK,
-    )
+    uid = data.get("localId")
+
+    display_name: str | None = None
+    photo_url: str | None = None
+    if uid:
+        try:
+            user_record = firebase_auth.get_user(uid)
+            display_name = user_record.display_name
+            photo_url = user_record.photo_url
+        except firebase_exceptions.FirebaseError as exc:
+            log.warning("Unable to retrieve Firebase user %s: %s", uid, exc)
+
+    profile_payload: dict[str, Any] | None = None
+    profile_synced = False
+    if uid:
+        try:
+            profile = upsert_user_profile(
+                uid,
+                email=data.get("email"),
+                display_name=display_name,
+                photo_url=photo_url,
+            )
+            profile_payload = serialize_user_profile(profile)
+            profile_synced = True
+        except UserProfileStoreError as exc:
+            log.exception("Failed to sync profile for %s during login", uid)
+
+    response_payload = {
+        "idToken": data.get("idToken"),
+        "refreshToken": data.get("refreshToken"),
+        "expiresIn": data.get("expiresIn"),
+        "localId": uid,
+        "email": data.get("email"),
+        "displayName": display_name,
+        "profileSynced": profile_synced,
+    }
+    if profile_payload:
+        response_payload["profile"] = profile_payload
+
+    return jsonify(response_payload), HTTPStatus.OK
 
 
 @auth_bp.post("/verify-token")

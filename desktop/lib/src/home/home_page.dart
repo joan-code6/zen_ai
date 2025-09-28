@@ -96,16 +96,19 @@ class _ZenHomePageState extends State<ZenHomePage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error), backgroundColor: Theme.of(context).colorScheme.errorContainer),
+          SnackBar(
+            content: Text(error),
+            backgroundColor: Theme.of(context).colorScheme.errorContainer,
+          ),
         );
       });
     }
     if (info != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(info)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(info)));
       });
     }
 
@@ -217,9 +220,7 @@ class _ZenHomePageState extends State<ZenHomePage> {
           content: TextField(
             controller: controller,
             autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Chat name',
-            ),
+            decoration: const InputDecoration(labelText: 'Chat name'),
             onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
           ),
           actions: [
@@ -254,7 +255,8 @@ class _ZenHomePageState extends State<ZenHomePage> {
 
     final chatTitle = chat.title ?? 'Untitled chat';
 
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Delete chat'),
@@ -268,10 +270,12 @@ class _ZenHomePageState extends State<ZenHomePage> {
               ),
               FilledButton(
                 style: FilledButton.styleFrom(
-                  backgroundColor:
-                      Theme.of(dialogContext).colorScheme.errorContainer,
-                  foregroundColor:
-                      Theme.of(dialogContext).colorScheme.onErrorContainer,
+                  backgroundColor: Theme.of(
+                    dialogContext,
+                  ).colorScheme.errorContainer,
+                  foregroundColor: Theme.of(
+                    dialogContext,
+                  ).colorScheme.onErrorContainer,
                 ),
                 onPressed: () => Navigator.of(dialogContext).pop(true),
                 child: const Text('Delete'),
@@ -290,7 +294,10 @@ class _ZenHomePageState extends State<ZenHomePage> {
     }
   }
 
-  Future<void> _sendMessage(String text, {List<String> fileIds = const []}) async {
+  Future<void> _sendMessage(
+    String text, {
+    List<String> fileIds = const [],
+  }) async {
     final trimmed = text.trim();
     final hasText = trimmed.isNotEmpty;
     final draftsToUpload = _selectedChatId == null
@@ -349,7 +356,9 @@ class _ZenHomePageState extends State<ZenHomePage> {
       if (uploadFailed) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('File upload failed. Please try again.')),
+            const SnackBar(
+              content: Text('File upload failed. Please try again.'),
+            ),
           );
         }
         return;
@@ -357,17 +366,19 @@ class _ZenHomePageState extends State<ZenHomePage> {
       if (mounted && uploadedDraftIds.isNotEmpty) {
         setState(() {
           final idsToRemove = uploadedDraftIds.toSet();
-          _composerPendingAttachments.removeWhere((pending) => idsToRemove.contains(pending.id));
+          _composerPendingAttachments.removeWhere(
+            (pending) => idsToRemove.contains(pending.id),
+          );
         });
       }
     }
 
-	await _appState.sendMessage(
-    chatId: resolvedChatId,
-		content: hasText ? trimmed : null,
-		fileIds: allFileIds,
-	);
-  await _appState.ensureChatLoaded(resolvedChatId);
+    await _appState.sendMessage(
+      chatId: resolvedChatId,
+      content: hasText ? trimmed : null,
+      fileIds: allFileIds,
+    );
+    await _appState.ensureChatLoaded(resolvedChatId);
   }
 
   Future<ChatFile?> _uploadFileForChat(String chatId) async {
@@ -396,7 +407,9 @@ class _ZenHomePageState extends State<ZenHomePage> {
         if (!mounted) return null;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Unable to read the selected file. Please try again.'),
+            content: Text(
+              'Unable to read the selected file. Please try again.',
+            ),
           ),
         );
         return null;
@@ -414,9 +427,9 @@ class _ZenHomePageState extends State<ZenHomePage> {
       return uploaded;
     } catch (e) {
       if (!mounted) return null;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('File upload failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('File upload failed: $e')));
       return null;
     }
   }
@@ -427,9 +440,7 @@ class _ZenHomePageState extends State<ZenHomePage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please sign in to upload files.'),
-          ),
+          const SnackBar(content: Text('Please sign in to upload files.')),
         );
       });
       return null;
@@ -449,7 +460,9 @@ class _ZenHomePageState extends State<ZenHomePage> {
         if (!mounted) return null;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Unable to read the selected file. Please try again.'),
+            content: Text(
+              'Unable to read the selected file. Please try again.',
+            ),
           ),
         );
         return null;
@@ -469,16 +482,18 @@ class _ZenHomePageState extends State<ZenHomePage> {
       return null;
     } catch (e) {
       if (!mounted) return null;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('File selection failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('File selection failed: $e')));
       return null;
     }
   }
 
   void _removeComposerAttachment(String id) {
     setState(() {
-      _composerPendingAttachments.removeWhere((attachment) => attachment.id == id);
+      _composerPendingAttachments.removeWhere(
+        (attachment) => attachment.id == id,
+      );
     });
   }
 
@@ -526,7 +541,9 @@ class _ZenHomePageState extends State<ZenHomePage> {
             onItemSelected: _onSidebarItemSelected,
             chats: _appState.chats,
             isLoadingChats: _appState.isSyncingChats,
-            onRefreshChats: _appState.isSyncingChats ? null : _appState.fetchChats,
+            onRefreshChats: _appState.isSyncingChats
+                ? null
+                : _appState.fetchChats,
             onChatSelected: _onSelectChat,
             onNewChat: _onCreateChat,
             onUserPressed: _openUserOverlay,
@@ -549,6 +566,7 @@ class _ZenHomePageState extends State<ZenHomePage> {
                         chats: _appState.chats,
                         selectedChatId: _selectedChatId,
                         selectedChat: _appState.chatById(_selectedChatId),
+                        userDisplayName: _appState.displayName,
                         isChatLoading: _selectedChatId != null
                             ? _appState.isChatLoading(_selectedChatId!)
                             : false,
@@ -728,22 +746,22 @@ class _ZenHomePageState extends State<ZenHomePage> {
       return false;
     }
 
-  final noteMatches = q.isEmpty
-    ? _notes.take(6).toList()
-    : _notes
-        .where((n) => matches(n.title, q) || matches(n.excerpt, q))
-        .toList();
+    final noteMatches = q.isEmpty
+        ? _notes.take(6).toList()
+        : _notes
+              .where((n) => matches(n.title, q) || matches(n.excerpt, q))
+              .toList();
 
-  final chats = _appState.chats;
-  final chatMatches = q.isEmpty
-    ? chats.take(6).toList()
-    : chats
-      .where(
-        (c) =>
-          matches(c.title ?? 'Untitled chat', q) ||
-          c.messages.any((m) => matches(m.content, q)),
-      )
-      .toList();
+    final chats = _appState.chats;
+    final chatMatches = q.isEmpty
+        ? chats.take(6).toList()
+        : chats
+              .where(
+                (c) =>
+                    matches(c.title ?? 'Untitled chat', q) ||
+                    c.messages.any((m) => matches(m.content, q)),
+              )
+              .toList();
 
     final results = <Widget>[];
     for (var n in noteMatches) {
@@ -861,7 +879,9 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
     _autoArchiveChats = UserPreferences.autoArchiveChats;
     _emailController = TextEditingController(text: widget.appState.email);
     _passwordController = TextEditingController();
-    _displayNameController = TextEditingController();
+    _displayNameController = TextEditingController(
+      text: widget.appState.displayName ?? '',
+    );
     widget.appState.addListener(_onAppStateChanged);
   }
 
@@ -886,7 +906,7 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
       if (widget.appState.isAuthenticated) {
         _emailController.text = widget.appState.email ?? _emailController.text;
         _passwordController.clear();
-        _displayNameController.clear();
+        _displayNameController.text = widget.appState.displayName ?? '';
         _isSignupMode = false;
       }
     });
@@ -945,12 +965,20 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
         displayName: displayName.isEmpty ? null : displayName,
       );
       if (!created) return;
-      final loggedIn = await widget.appState.login(email: email, password: password);
+      final loggedIn = await widget.appState.login(
+        email: email,
+        password: password,
+        displayName: displayName.isEmpty ? null : displayName,
+      );
       if (loggedIn && mounted) {
         widget.onClose();
       }
     } else {
-      final loggedIn = await widget.appState.login(email: email, password: password);
+      final loggedIn = await widget.appState.login(
+        email: email,
+        password: password,
+        displayName: displayName.isEmpty ? null : displayName,
+      );
       if (loggedIn && mounted) {
         widget.onClose();
       }
@@ -965,23 +993,71 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
     }
   }
 
+  Future<void> _handleRefreshProfile() async {
+    if (widget.appState.isUpdatingProfile) return;
+    await widget.appState.refreshProfile();
+  }
+
+  Future<void> _promptDisplayNameEdit() async {
+    if (widget.appState.isUpdatingProfile) return;
+    final currentName = widget.appState.displayName ?? '';
+    final controller = TextEditingController(text: currentName);
+    final updatedName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Update display name'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Display name'),
+            onSubmitted: (value) =>
+                Navigator.of(dialogContext).pop(value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (!mounted || updatedName == null) return;
+    final trimmed = updatedName.trim();
+    if (trimmed.isEmpty || trimmed == currentName.trim()) return;
+    await widget.appState.updateDisplayName(trimmed);
+  }
+
   Future<void> _openCustomColorPicker() async {
     final selectedColor = await showDialog<Color>(
       context: context,
       builder: (dialogContext) {
         Color tempColor = _accentColor;
         final hexController = TextEditingController(
-          text: '#${tempColor.value.toRadixString(16).substring(2).toUpperCase()}',
+          text:
+              '#${tempColor.value.toRadixString(16).substring(2).toUpperCase()}',
         );
         return StatefulBuilder(
           builder: (context, setStateDialog) {
             void updateColor(Color color) {
               setStateDialog(() => tempColor = color);
-              hexController.text = '#${color.value.toRadixString(16).substring(2).toUpperCase()}';
+              hexController.text =
+                  '#${color.value.toRadixString(16).substring(2).toUpperCase()}';
             }
 
             void updateFromHex(String hex) {
-              final color = Color(int.tryParse(hex.replaceFirst('#', ''), radix: 16) ?? tempColor.value);
+              final color = Color(
+                int.tryParse(hex.replaceFirst('#', ''), radix: 16) ??
+                    tempColor.value,
+              );
               setStateDialog(() => tempColor = color);
             }
 
@@ -991,7 +1067,10 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 400, maxHeight: 600),
+                constraints: const BoxConstraints(
+                  maxWidth: 400,
+                  maxHeight: 600,
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: SingleChildScrollView(
@@ -1009,9 +1088,8 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                             Expanded(
                               child: Text(
                                 'Custom Accent Color',
-                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w600),
                               ),
                             ),
                           ],
@@ -1041,7 +1119,9 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                             ColorPickerType.both: 'Wheel & Grid',
                             ColorPickerType.wheel: 'Color Wheel',
                           },
-                          pickerTypeTextStyle: Theme.of(context).textTheme.bodyMedium,
+                          pickerTypeTextStyle: Theme.of(
+                            context,
+                          ).textTheme.bodyMedium,
                           enableShadesSelection: false,
                           includeIndex850: false,
                           crossAxisAlignment: CrossAxisAlignment.center,
@@ -1068,11 +1148,21 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                           recentColors: const [],
                           maxRecentColors: 5,
                           showMaterialName: false,
-                          materialNameTextStyle: Theme.of(context).textTheme.bodySmall,
-                          colorNameTextStyle: Theme.of(context).textTheme.bodySmall,
-                          colorCodeTextStyle: Theme.of(context).textTheme.bodySmall,
-                          colorCodePrefixStyle: Theme.of(context).textTheme.bodySmall,
-                          selectedPickerTypeColor: Theme.of(context).colorScheme.primary,
+                          materialNameTextStyle: Theme.of(
+                            context,
+                          ).textTheme.bodySmall,
+                          colorNameTextStyle: Theme.of(
+                            context,
+                          ).textTheme.bodySmall,
+                          colorCodeTextStyle: Theme.of(
+                            context,
+                          ).textTheme.bodySmall,
+                          colorCodePrefixStyle: Theme.of(
+                            context,
+                          ).textTheme.bodySmall,
+                          selectedPickerTypeColor: Theme.of(
+                            context,
+                          ).colorScheme.primary,
                         ),
                         const SizedBox(height: 20),
                         // Hex Input
@@ -1101,7 +1191,9 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                             color: tempColor,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outline.withOpacity(0.3),
                               width: 1,
                             ),
                           ),
@@ -1109,7 +1201,11 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                           child: Text(
                             'Preview',
                             style: TextStyle(
-                              color: ThemeData.estimateBrightnessForColor(tempColor) == Brightness.dark
+                              color:
+                                  ThemeData.estimateBrightnessForColor(
+                                        tempColor,
+                                      ) ==
+                                      Brightness.dark
                                   ? Colors.white
                                   : Colors.black,
                               fontWeight: FontWeight.w500,
@@ -1121,12 +1217,14 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             TextButton(
-                              onPressed: () => Navigator.of(dialogContext).pop(),
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(),
                               child: const Text('Cancel'),
                             ),
                             const SizedBox(width: 12),
                             FilledButton(
-                              onPressed: () => Navigator.of(dialogContext).pop(tempColor),
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(tempColor),
                               child: const Text('Apply'),
                             ),
                           ],
@@ -1255,7 +1353,8 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
   Widget _buildProfileTab(BuildContext context) {
     final theme = Theme.of(context);
     final isAuthenticated = widget.appState.isAuthenticated;
-    final isBusy = widget.appState.isAuthenticating || widget.appState.isRestoringSession;
+    final isBusy =
+        widget.appState.isAuthenticating || widget.appState.isRestoringSession;
 
     if (!isAuthenticated) {
       return SingleChildScrollView(
@@ -1301,16 +1400,17 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                 obscureText: true,
                 validator: _validatePassword,
               ),
-              if (_isSignupMode) ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _displayNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Display name (optional)',
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _displayNameController,
+                textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(
+                  labelText: _isSignupMode
+                      ? 'Display name'
+                      : 'Display name (optional)',
+                  prefixIcon: const Icon(Icons.badge_outlined),
                 ),
-              ],
+              ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
@@ -1338,9 +1438,7 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
               Row(
                 children: [
                   Expanded(
-                    child: Divider(
-                      color: theme.colorScheme.outlineVariant,
-                    ),
+                    child: Divider(color: theme.colorScheme.outlineVariant),
                   ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1352,9 +1450,7 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                     ),
                   ),
                   Expanded(
-                    child: Divider(
-                      color: theme.colorScheme.outlineVariant,
-                    ),
+                    child: Divider(color: theme.colorScheme.outlineVariant),
                   ),
                 ],
               ),
@@ -1362,13 +1458,13 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                    icon: isBusy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const FaIcon(FontAwesomeIcons.google, size: 20),
+                  icon: isBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const FaIcon(FontAwesomeIcons.google, size: 20),
                   label: const Text('Continue with Google'),
                   onPressed: isBusy ? null : _handleGoogleSignIn,
                 ),
@@ -1404,8 +1500,19 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
         : 'Token expiry unknown';
     final displayName = widget.appState.displayName;
     final photoUrl = widget.appState.photoUrl;
-    final primaryLabel =
-      displayName != null && displayName.isNotEmpty ? displayName : email;
+    final isUpdatingProfile = widget.appState.isUpdatingProfile;
+    final profile = widget.appState.profile;
+    final updatedAt = profile?.updatedAt;
+    final createdAt = profile?.createdAt;
+    final updatedAtLabel = updatedAt != null
+        ? updatedAt.toLocal().toString().split('.').first
+        : null;
+    final createdAtLabel = createdAt != null
+        ? createdAt.toLocal().toString().split('.').first
+        : null;
+    final primaryLabel = displayName != null && displayName.isNotEmpty
+        ? displayName
+        : email;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -1417,19 +1524,22 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
               CircleAvatar(
                 radius: 32,
                 backgroundColor: photoUrl != null && photoUrl.isNotEmpty
-                  ? Colors.transparent
-                  : theme.colorScheme.primary.withOpacity(0.14),
-                backgroundImage:
-                  photoUrl != null && photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                    ? Colors.transparent
+                    : theme.colorScheme.primary.withOpacity(0.14),
+                backgroundImage: photoUrl != null && photoUrl.isNotEmpty
+                    ? NetworkImage(photoUrl)
+                    : null,
                 child: photoUrl != null && photoUrl.isNotEmpty
-                  ? null
-                  : Text(
-                    primaryLabel.isNotEmpty ? primaryLabel[0].toUpperCase() : '?',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                    ? null
+                    : Text(
+                        primaryLabel.isNotEmpty
+                            ? primaryLabel[0].toUpperCase()
+                            : '?',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -1479,14 +1589,37 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
           Card(
             child: Column(
               children: [
-                if (displayName != null && displayName.isNotEmpty) ...[
-                  ListTile(
-                    leading: const Icon(Icons.person_outline),
-                    title: const Text('Display name'),
-                    subtitle: Text(displayName),
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: const Text('Display name'),
+                  subtitle: Text(
+                    displayName != null && displayName.isNotEmpty
+                        ? displayName
+                        : 'Not set',
                   ),
-                  const Divider(height: 1),
-                ],
+                  trailing: isUpdatingProfile
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Wrap(
+                          spacing: 4,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.refresh),
+                              onPressed: _handleRefreshProfile,
+                              tooltip: 'Refresh from server',
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: _promptDisplayNameEdit,
+                              tooltip: 'Edit display name',
+                            ),
+                          ],
+                        ),
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.mail_outline),
                   title: const Text('Email'),
@@ -1504,6 +1637,23 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                   title: const Text('Token expires'),
                   subtitle: Text(expiryLabel),
                 ),
+                if (createdAtLabel != null || updatedAtLabel != null) ...[
+                  const Divider(height: 1),
+                  if (createdAtLabel != null)
+                    ListTile(
+                      leading: const Icon(Icons.calendar_today_outlined),
+                      title: const Text('Profile created'),
+                      subtitle: Text(createdAtLabel),
+                    ),
+                  if (createdAtLabel != null && updatedAtLabel != null)
+                    const Divider(height: 1),
+                  if (updatedAtLabel != null)
+                    ListTile(
+                      leading: const Icon(Icons.history_toggle_off),
+                      title: const Text('Profile updated'),
+                      subtitle: Text(updatedAtLabel),
+                    ),
+                ],
               ],
             ),
           ),
@@ -1537,8 +1687,8 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                   title: const Text('Account status'),
                   subtitle: Text(
                     widget.appState.isNewUser
-                      ? 'Recently linked. Explore your workspace!'
-                      : 'Signed in user',
+                        ? 'Recently linked. Explore your workspace!'
+                        : 'Signed in user',
                   ),
                 ),
               ],
@@ -1607,8 +1757,9 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
                   onTap: () => _onAccentColorSelected(option.color),
                 ),
               _CustomColorButton(
-                selected: !_accentColorOptions
-                    .any((option) => option.color == _accentColor),
+                selected: !_accentColorOptions.any(
+                  (option) => option.color == _accentColor,
+                ),
                 currentColor: _accentColor,
                 onTap: _openCustomColorPicker,
               ),
@@ -1875,10 +2026,7 @@ class _CustomColorButton extends StatelessWidget {
                 Color(0xFFFF5F6D),
               ],
             ),
-            border: Border.all(
-              color: borderColor,
-              width: selected ? 3 : 1.5,
-            ),
+            border: Border.all(color: borderColor, width: selected ? 3 : 1.5),
             boxShadow: [
               BoxShadow(
                 color: theme.shadowColor.withOpacity(0.12),

@@ -8,6 +8,7 @@ This folder hosts the Flask API for the Zen assistant. The current milestone cov
 - Firebase Admin SDK bootstrapped with a service-account key
 - REST endpoints for sign-up, email/password login, Google Sign-In exchange, and ID-token verification
 - Firestore-backed chat storage (create, list, update, delete)
+- Firestore-backed user profile storage (email, display name, photo)
 - Gemini-powered conversation replies with history-aware prompts (default model: `gemini-2.0-flash`)
 - Health check endpoint for monitoring (`/health`)
 
@@ -60,7 +61,7 @@ Create a new Firebase Authentication user.
 
 - **Body:** `{ "email": "user@example.com", "password": "secret", "displayName": "User" }`
 - **Responses:**
-  - `201 Created` — Returns `{ uid, email, displayName, emailVerified }`
+   - `201 Created` — Returns `{ uid, email, displayName, emailVerified, profile }`
   - `409 Conflict` — Email already registered
 
 ### `POST /auth/login`
@@ -68,7 +69,7 @@ Authenticate an email/password user via Firebase's Identity Toolkit. Requires `F
 
 - **Body:** `{ "email": "user@example.com", "password": "secret" }`
 - **Responses:**
-  - `200 OK` — Returns `{ idToken, refreshToken, expiresIn, localId, email }`
+   - `200 OK` — Returns `{ idToken, refreshToken, expiresIn, localId, email, displayName, profile, profileSynced }`
   - `503 Service Unavailable` — API key not configured
 
 ### `POST /auth/google-signin`
@@ -79,7 +80,7 @@ Exchange a Google ID token or access token for Firebase credentials. Requires `F
    - `accessToken` — Google OAuth access token, used when provided by the client
    - `requestUri` — Any valid HTTP/HTTPS URL allowed by Firebase (defaults to `http://localhost`)
 - **Responses:**
-   - `200 OK` — Returns `{ idToken, refreshToken, expiresIn, localId, email, displayName, photoUrl, isNewUser }
+   - `200 OK` — Returns `{ idToken, refreshToken, expiresIn, localId, email, displayName, photoUrl, isNewUser, profile }`
    - `503 Service Unavailable` — API key not configured
    - `401 Unauthorized` — Invalid Google credential or Firebase rejected the request
 
@@ -136,6 +137,21 @@ Append a message to a chat and receive the Gemini-generated assistant reply.
 
 ### `GET /health`
 Health probe endpoint; returns `{ "status": "ok" }`.
+
+### `GET /users/<uid>`
+Fetch the stored profile for the given Firebase UID.
+
+- **Responses:**
+   - `200 OK` — Returns `{ uid, email, displayName, photoUrl, createdAt, updatedAt }`
+   - `404 Not Found` — No profile exists yet
+
+### `PATCH /users/<uid>`
+Update profile attributes (currently `displayName` and `photoUrl`). Supply at least one of the supported fields in the request body.
+
+- **Body:** `{ "displayName": "New name", "photoUrl": "https://example.com/avatar.png" }`
+- **Responses:**
+   - `200 OK` — Returns the updated profile
+   - `400 Bad Request` — No supported fields provided
 
 ## Next Steps
 
