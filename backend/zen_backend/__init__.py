@@ -7,6 +7,7 @@ from .config import AppConfig, ConfigError, load_config
 from .firebase import init_firebase
 from .auth.routes import auth_bp
 from .chats.routes import chats_bp
+from .notes.routes import notes_bp
 from .users.routes import users_bp
 
 
@@ -37,6 +38,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(chats_bp)
+    app.register_blueprint(notes_bp)
     app.register_blueprint(users_bp)
 
     @app.get("/health")

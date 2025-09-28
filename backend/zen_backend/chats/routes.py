@@ -16,6 +16,7 @@ import mimetypes
 
 from ..ai.gemini import GeminiAPIError, generate_reply, generate_chat_title
 from ..firebase import get_firestore_client
+from ..notes.service import find_notes_for_text, format_note_for_context
 
 chats_bp = Blueprint("chats", __name__, url_prefix="/chats")
 log = logging.getLogger(__name__)
@@ -962,6 +963,26 @@ def add_message(chat_id: str) -> tuple[Any, int]:
         (msg.get("content", "") for msg in reversed(history_messages) if msg.get("role") == "user" and msg.get("content")),
         "",
     )
+
+    note_context_blocks: list[str] = []
+    if latest_user_text:
+        context_notes = find_notes_for_text(uid, latest_user_text, limit=5)
+        for note in context_notes:
+            block = format_note_for_context(note)
+            if block:
+                note_context_blocks.append(block)
+
+    if note_context_blocks:
+        history_messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "The following stored user notes may be relevant to this conversation. "
+                    "Treat them as ground-truth context about the user and keep them confidential unless the user explicitly asks you to share them.\n\n"
+                    + "\n\n".join(note_context_blocks)
+                ),
+            }
+        )
 
     if latest_user_text:
         language_instruction = (
