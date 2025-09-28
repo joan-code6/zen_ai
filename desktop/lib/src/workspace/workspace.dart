@@ -2,19 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/chat.dart';
 
-typedef SendMessageCallback = Future<void> Function(
-  String message, {
-  List<String> fileIds,
-});
+typedef SendMessageCallback =
+    Future<void> Function(String message, {List<String> fileIds});
 
 class ComposerAttachment {
   final String id;
   final String fileName;
 
-  const ComposerAttachment({
-    required this.id,
-    required this.fileName,
-  });
+  const ComposerAttachment({required this.id, required this.fileName});
 }
 
 class ZenWorkspace extends StatelessWidget {
@@ -22,6 +17,7 @@ class ZenWorkspace extends StatelessWidget {
   final List<Chat> chats;
   final String? selectedChatId;
   final Chat? selectedChat;
+  final String? userDisplayName;
   final VoidCallback? onCreateChat;
   final SendMessageCallback? onSendMessage;
   final Future<ChatFile?> Function(String chatId)? onUploadFile;
@@ -37,6 +33,7 @@ class ZenWorkspace extends StatelessWidget {
     this.chats = const [],
     this.selectedChatId,
     this.selectedChat,
+    this.userDisplayName,
     this.onCreateChat,
     this.onSendMessage,
     this.onUploadFile,
@@ -88,7 +85,13 @@ class ZenWorkspace extends StatelessWidget {
         children: [
           const Spacer(),
           Text(
-            'Hallo Bennet, wie geht es dir?',
+            () {
+              final name = userDisplayName?.trim();
+              if (name != null && name.isNotEmpty) {
+                return 'Hallo $name, wie geht es dir?';
+              }
+              return 'Hallo, wie geht es dir?';
+            }(),
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.displaySmall?.copyWith(
               fontWeight: FontWeight.w500,
@@ -219,11 +222,9 @@ class _ChatViewState extends State<_ChatView> {
 
   @override
   Widget build(BuildContext context) {
-  final chat = widget.chat;
-  final messages = chat.messages;
-    final fileLookup = {
-      for (final file in chat.files) file.id: file,
-    };
+    final chat = widget.chat;
+    final messages = chat.messages;
+    final fileLookup = {for (final file in chat.files) file.id: file};
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -254,86 +255,86 @@ class _ChatViewState extends State<_ChatView> {
             child: widget.isLoading && messages.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : messages.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 32.0),
-                          child: Text(
-                            'No messages yet. Say hello!',
-                            style: theme.textTheme.bodyLarge,
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: _scroll,
-                        itemCount: messages.length,
-                        itemBuilder: (context, i) {
-                          final m = messages[i];
-              final bg = m.fromUser
-                              ? colorScheme.primary
-                              : colorScheme.surfaceVariant;
-                          final fg = m.fromUser
-                              ? colorScheme.onPrimary
-                              : colorScheme.onSurface.withOpacity(0.92);
-              final attachments = m.fileIds
-                .map((id) => fileLookup[id])
-                .whereType<ChatFile>()
-                .toList();
-              final messageText = m.content.trim();
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8.0),
-                            child: Row(
-                              mainAxisAlignment: m.fromUser
-                                  ? MainAxisAlignment.end
-                                  : MainAxisAlignment.start,
-                              children: [
-                                Flexible(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: bg,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: m.fromUser
-                                          ? CrossAxisAlignment.end
-                                          : CrossAxisAlignment.start,
-                                      children: [
-                                        if (messageText.isNotEmpty)
-                                          Text(
-                                            messageText,
-                                            style: TextStyle(color: fg),
-                                          ),
-                                        if (attachments.isNotEmpty) ...[
-                                          if (messageText.isNotEmpty)
-                                            const SizedBox(height: 6),
-                                          Wrap(
-                                            spacing: 6,
-                                            runSpacing: 6,
-                                            alignment: m.fromUser
-                                                ? WrapAlignment.end
-                                                : WrapAlignment.start,
-                                            children: [
-                                              for (final attachment in attachments)
-                                                _AttachmentChip(
-                                                  file: attachment,
-                                                  fromUser: m.fromUser,
-                                                ),
-                                            ],
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 32.0),
+                      child: Text(
+                        'No messages yet. Say hello!',
+                        style: theme.textTheme.bodyLarge,
                       ),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scroll,
+                    itemCount: messages.length,
+                    itemBuilder: (context, i) {
+                      final m = messages[i];
+                      final bg = m.fromUser
+                          ? colorScheme.primary
+                          : colorScheme.surfaceVariant;
+                      final fg = m.fromUser
+                          ? colorScheme.onPrimary
+                          : colorScheme.onSurface.withOpacity(0.92);
+                      final attachments = m.fileIds
+                          .map((id) => fileLookup[id])
+                          .whereType<ChatFile>()
+                          .toList();
+                      final messageText = m.content.trim();
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Row(
+                          mainAxisAlignment: m.fromUser
+                              ? MainAxisAlignment.end
+                              : MainAxisAlignment.start,
+                          children: [
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: bg,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: m.fromUser
+                                      ? CrossAxisAlignment.end
+                                      : CrossAxisAlignment.start,
+                                  children: [
+                                    if (messageText.isNotEmpty)
+                                      Text(
+                                        messageText,
+                                        style: TextStyle(color: fg),
+                                      ),
+                                    if (attachments.isNotEmpty) ...[
+                                      if (messageText.isNotEmpty)
+                                        const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        alignment: m.fromUser
+                                            ? WrapAlignment.end
+                                            : WrapAlignment.start,
+                                        children: [
+                                          for (final attachment in attachments)
+                                            _AttachmentChip(
+                                              file: attachment,
+                                              fromUser: m.fromUser,
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
           ),
           const SizedBox(height: 12),
           if (_pendingFiles.isNotEmpty) ...[
@@ -346,7 +347,10 @@ class _ChatViewState extends State<_ChatView> {
                   for (final file in _pendingFiles)
                     _PendingAttachmentChip(
                       file: file,
-                      enabled: !(widget.isSending || widget.isLoading || _isUploadingFile),
+                      enabled:
+                          !(widget.isSending ||
+                              widget.isLoading ||
+                              _isUploadingFile),
                       onRemove: () => _removePendingFile(file),
                     ),
                 ],
@@ -366,10 +370,7 @@ class _ChatViewState extends State<_ChatView> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                   const SizedBox(width: 12),
-                  Text(
-                    'Uploading file…',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  Text('Uploading file…', style: theme.textTheme.bodyMedium),
                 ],
               ),
             ),
@@ -398,8 +399,11 @@ class _ChatViewState extends State<_ChatView> {
                     children: [
                       _RoundActionButton(
                         icon: Icons.attach_file,
-                        tooltip: _isUploadingFile ? 'Uploading…' : 'Upload file',
-                        onPressed: widget.onUploadFile == null ||
+                        tooltip: _isUploadingFile
+                            ? 'Uploading…'
+                            : 'Upload file',
+                        onPressed:
+                            widget.onUploadFile == null ||
                                 widget.isSending ||
                                 widget.isLoading ||
                                 _isUploadingFile
@@ -445,7 +449,8 @@ class _ChatViewState extends State<_ChatView> {
                       _RoundActionButton(
                         icon: Icons.send_rounded,
                         tooltip: 'Send',
-                        onPressed: widget.isSending ||
+                        onPressed:
+                            widget.isSending ||
                                 widget.isLoading ||
                                 _isUploadingFile
                             ? null
@@ -476,10 +481,7 @@ class _AttachmentChip extends StatelessWidget {
   final ChatFile file;
   final bool fromUser;
 
-  const _AttachmentChip({
-    required this.file,
-    required this.fromUser,
-  });
+  const _AttachmentChip({required this.file, required this.fromUser});
 
   @override
   Widget build(BuildContext context) {
@@ -545,10 +547,7 @@ class _PendingAttachmentChip extends StatelessWidget {
         avatar: const Icon(Icons.attach_file, size: 18),
         label: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 180),
-          child: Text(
-            file.fileName,
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text(file.fileName, overflow: TextOverflow.ellipsis),
         ),
         onDeleted: enabled ? onRemove : null,
         deleteIcon: Icon(
@@ -585,10 +584,7 @@ class _ComposerPendingAttachmentChip extends StatelessWidget {
         avatar: const Icon(Icons.attach_file, size: 18),
         label: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 220),
-          child: Text(
-            attachment.fileName,
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text(attachment.fileName, overflow: TextOverflow.ellipsis),
         ),
         onDeleted: enabled ? onRemove : null,
         deleteIcon: Icon(
@@ -729,7 +725,10 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
                   _RoundActionButton(
                     icon: Icons.attach_file,
                     tooltip: _isUploadingFile ? 'Uploading…' : 'Upload a file',
-          onPressed: widget.onUploadFile == null || _isUploadingFile || widget.isSending
+                    onPressed:
+                        widget.onUploadFile == null ||
+                            _isUploadingFile ||
+                            widget.isSending
                         ? null
                         : _handleUploadFile,
                   ),
