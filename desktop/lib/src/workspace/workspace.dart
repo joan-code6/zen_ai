@@ -2,13 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/chat.dart';
 
+typedef SendMessageCallback = Future<void> Function(
+  String message, {
+  List<String> fileIds,
+});
+
 class ZenWorkspace extends StatelessWidget {
   final int selectedIndex;
   final List<Chat> chats;
   final String? selectedChatId;
   final Chat? selectedChat;
   final VoidCallback? onCreateChat;
-  final Future<void> Function(String)? onSendMessage;
+  final SendMessageCallback? onSendMessage;
+  final Future<ChatFile?> Function(String chatId)? onUploadFile;
+  final Future<ChatFile?> Function()? onUploadFileForComposer;
   final bool isSendingMessage;
   final bool isChatLoading;
 
@@ -20,6 +27,8 @@ class ZenWorkspace extends StatelessWidget {
     this.selectedChat,
     this.onCreateChat,
     this.onSendMessage,
+    this.onUploadFile,
+    this.onUploadFileForComposer,
     this.isSendingMessage = false,
     this.isChatLoading = false,
   });
@@ -51,6 +60,7 @@ class ZenWorkspace extends StatelessWidget {
             onCreate: onCreateChat,
             isSending: isSendingMessage,
             isLoading: isChatLoading || isPlaceholder,
+            onUploadFile: onUploadFile,
           ),
         ),
       );
@@ -79,6 +89,7 @@ class ZenWorkspace extends StatelessWidget {
           ZenChatComposer(
             onSend: onSendMessage,
             isSending: isSendingMessage,
+            onUploadFile: onUploadFileForComposer,
           ),
           const SizedBox(height: 48),
           const Spacer(),
@@ -92,10 +103,11 @@ class ZenWorkspace extends StatelessWidget {
 
 class _ChatView extends StatefulWidget {
   final Chat chat;
-  final Future<void> Function(String)? onSend;
+  final SendMessageCallback? onSend;
   final VoidCallback? onCreate;
   final bool isSending;
   final bool isLoading;
+  final Future<ChatFile?> Function(String chatId)? onUploadFile;
 
   const _ChatView({
     required this.chat,
@@ -103,6 +115,7 @@ class _ChatView extends StatefulWidget {
     this.onCreate,
     this.isSending = false,
     this.isLoading = false,
+    this.onUploadFile,
   });
 
   @override
@@ -113,6 +126,8 @@ class _ChatViewState extends State<_ChatView> {
   final TextEditingController _ctrl = TextEditingController();
   final ScrollController _scroll = ScrollController();
   final FocusNode _inputFocus = FocusNode();
+  final List<ChatFile> _pendingFiles = [];
+  bool _isUploadingFile = false;
 
   @override
   void dispose() {
@@ -134,11 +149,25 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   Future<void> _send() async {
+    if (widget.onSend == null) return;
     final text = _ctrl.text.trim();
-    if (text.isEmpty) return;
-    await widget.onSend?.call(text);
+    final hasText = text.isNotEmpty;
+    final hasAttachments = _pendingFiles.isNotEmpty;
+    if (!hasText && !hasAttachments) return;
+
+    final attachmentIds = _pendingFiles.map((file) => file.id).toList();
+    try {
+      await widget.onSend!.call(text, fileIds: attachmentIds);
+    } catch (_) {
+      return;
+    }
+
+    if (!mounted) return;
     _ctrl.clear();
-    // scroll to bottom a bit later
+    setState(() {
+      _pendingFiles.clear();
+    });
+
     Future.delayed(const Duration(milliseconds: 120), () {
       if (_scroll.hasClients) {
         _scroll.animateTo(
@@ -150,10 +179,35 @@ class _ChatViewState extends State<_ChatView> {
     });
   }
 
+  Future<void> _handleUploadFile() async {
+    if (widget.onUploadFile == null || _isUploadingFile) return;
+    setState(() => _isUploadingFile = true);
+    try {
+      final uploaded = await widget.onUploadFile!.call(widget.chat.id);
+      if (!mounted || uploaded == null) return;
+      setState(() {
+        _pendingFiles.add(uploaded);
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingFile = false);
+      }
+    }
+  }
+
+  void _removePendingFile(ChatFile file) {
+    setState(() {
+      _pendingFiles.remove(file);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
   final chat = widget.chat;
   final messages = chat.messages;
+    final fileLookup = {
+      for (final file in chat.files) file.id: file,
+    };
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -198,12 +252,17 @@ class _ChatViewState extends State<_ChatView> {
                         itemCount: messages.length,
                         itemBuilder: (context, i) {
                           final m = messages[i];
-                          final bg = m.fromUser
+              final bg = m.fromUser
                               ? colorScheme.primary
                               : colorScheme.surfaceVariant;
                           final fg = m.fromUser
                               ? colorScheme.onPrimary
                               : colorScheme.onSurface.withOpacity(0.92);
+              final attachments = m.fileIds
+                .map((id) => fileLookup[id])
+                .whereType<ChatFile>()
+                .toList();
+              final messageText = m.content.trim();
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 8.0),
                             child: Row(
@@ -221,9 +280,36 @@ class _ChatViewState extends State<_ChatView> {
                                       color: bg,
                                       borderRadius: BorderRadius.circular(12),
                                     ),
-                                    child: Text(
-                                      m.content,
-                                      style: TextStyle(color: fg),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: m.fromUser
+                                          ? CrossAxisAlignment.end
+                                          : CrossAxisAlignment.start,
+                                      children: [
+                                        if (messageText.isNotEmpty)
+                                          Text(
+                                            messageText,
+                                            style: TextStyle(color: fg),
+                                          ),
+                                        if (attachments.isNotEmpty) ...[
+                                          if (messageText.isNotEmpty)
+                                            const SizedBox(height: 6),
+                                          Wrap(
+                                            spacing: 6,
+                                            runSpacing: 6,
+                                            alignment: m.fromUser
+                                                ? WrapAlignment.end
+                                                : WrapAlignment.start,
+                                            children: [
+                                              for (final attachment in attachments)
+                                                _AttachmentChip(
+                                                  file: attachment,
+                                                  fromUser: m.fromUser,
+                                                ),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                   ),
                                 ),
@@ -234,6 +320,43 @@ class _ChatViewState extends State<_ChatView> {
                       ),
           ),
           const SizedBox(height: 12),
+          if (_pendingFiles.isNotEmpty) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final file in _pendingFiles)
+                    _PendingAttachmentChip(
+                      file: file,
+                      enabled: !(widget.isSending || widget.isLoading || _isUploadingFile),
+                      onRemove: () => _removePendingFile(file),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (_isUploadingFile)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Uploading file…',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
           // bottom composer styled similar to big composer
           Row(
             children: [
@@ -259,8 +382,13 @@ class _ChatViewState extends State<_ChatView> {
                     children: [
                       _RoundActionButton(
                         icon: Icons.attach_file,
-                        tooltip: 'Upload file',
-                        onPressed: () {},
+                        tooltip: _isUploadingFile ? 'Uploading…' : 'Upload file',
+                        onPressed: widget.onUploadFile == null ||
+                                widget.isSending ||
+                                widget.isLoading ||
+                                _isUploadingFile
+                            ? null
+                            : _handleUploadFile,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -301,7 +429,9 @@ class _ChatViewState extends State<_ChatView> {
                       _RoundActionButton(
                         icon: Icons.send_rounded,
                         tooltip: 'Send',
-                        onPressed: widget.isSending || widget.isLoading
+                        onPressed: widget.isSending ||
+                                widget.isLoading ||
+                                _isUploadingFile
                             ? null
                             : () {
                                 _send();
@@ -326,16 +456,111 @@ class SendIntent extends Intent {
   const SendIntent();
 }
 
+class _AttachmentChip extends StatelessWidget {
+  final ChatFile file;
+  final bool fromUser;
+
+  const _AttachmentChip({
+    required this.file,
+    required this.fromUser,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final background = fromUser
+        ? colorScheme.onPrimary.withOpacity(0.16)
+        : colorScheme.onSurface.withOpacity(0.08);
+    final borderColor = fromUser
+        ? colorScheme.onPrimary.withOpacity(0.24)
+        : colorScheme.outlineVariant.withOpacity(0.4);
+    final textColor = fromUser ? colorScheme.onPrimary : colorScheme.onSurface;
+
+    return Tooltip(
+      message: file.fileName,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: borderColor),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.attach_file, size: 16, color: textColor),
+            const SizedBox(width: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 160),
+              child: Text(
+                file.fileName,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: textColor,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingAttachmentChip extends StatelessWidget {
+  final ChatFile file;
+  final VoidCallback onRemove;
+  final bool enabled;
+
+  const _PendingAttachmentChip({
+    required this.file,
+    required this.onRemove,
+    required this.enabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: file.fileName,
+      child: InputChip(
+        avatar: const Icon(Icons.attach_file, size: 18),
+        label: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 180),
+          child: Text(
+            file.fileName,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        onDeleted: enabled ? onRemove : null,
+        deleteIcon: Icon(
+          Icons.close,
+          size: 18,
+          color: enabled ? null : theme.disabledColor,
+        ),
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        showCheckmark: false,
+        selected: false,
+        isEnabled: enabled,
+      ),
+    );
+  }
+}
+
 class ZenChatComposer extends StatefulWidget {
-  final Future<void> Function(String)? onSend;
+  final SendMessageCallback? onSend;
   final bool autofocus;
   final bool isSending;
+  final Future<ChatFile?> Function()? onUploadFile;
 
   const ZenChatComposer({
     super.key,
     this.onSend,
     this.autofocus = true,
     this.isSending = false,
+    this.onUploadFile,
   });
 
   @override
@@ -345,6 +570,7 @@ class ZenChatComposer extends StatefulWidget {
 class _ZenChatComposerState extends State<ZenChatComposer> {
   final TextEditingController _ctrl = TextEditingController();
   final FocusNode _focus = FocusNode();
+  bool _isUploadingFile = false;
 
   @override
   void dispose() {
@@ -365,8 +591,22 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
     if (widget.isSending) return;
-    await widget.onSend?.call(text);
+    await widget.onSend?.call(text, fileIds: const []);
     _ctrl.clear();
+  }
+
+  Future<void> _handleUploadFile() async {
+    if (widget.onUploadFile == null || _isUploadingFile || widget.isSending) {
+      return;
+    }
+    setState(() => _isUploadingFile = true);
+    try {
+      await widget.onUploadFile!.call();
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingFile = false);
+      }
+    }
   }
 
   @override
@@ -407,8 +647,10 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
                 children: [
                   _RoundActionButton(
                     icon: Icons.attach_file,
-                    tooltip: 'Upload a file',
-                    onPressed: () {},
+                    tooltip: _isUploadingFile ? 'Uploading…' : 'Upload a file',
+          onPressed: widget.onUploadFile == null || _isUploadingFile || widget.isSending
+                        ? null
+                        : _handleUploadFile,
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -473,7 +715,7 @@ class _ZenChatComposerState extends State<ZenChatComposer> {
                       _RoundActionButton(
                         icon: Icons.send_rounded,
                         tooltip: 'Send message',
-                        onPressed: widget.isSending
+                        onPressed: widget.isSending || _isUploadingFile
                             ? null
                             : () {
                                 _send();
