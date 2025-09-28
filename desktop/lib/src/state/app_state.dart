@@ -33,7 +33,7 @@ const String _oauthSuccessPage = '''<!DOCTYPE html>
 <body>
 	<main>
 		<h1>You're signed in!</h1>
-		<p>You can return to the app — this window will close automatically.</p>
+		<p>Close this Window and return to the app.</p>
 		<script>setTimeout(() => window.close(), 1500);</script>
 	</main>
 </body>

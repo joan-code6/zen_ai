@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mime/mime.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../models/chat.dart';
 import '../workspace/workspace.dart';
@@ -1361,13 +1362,13 @@ class _UserAccountOverlayState extends State<_UserAccountOverlay> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  icon: isBusy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.g_translate, size: 22),
+                    icon: isBusy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const FaIcon(FontAwesomeIcons.google, size: 20),
                   label: const Text('Continue with Google'),
                   onPressed: isBusy ? null : _handleGoogleSignIn,
                 ),
