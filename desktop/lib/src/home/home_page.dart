@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flex_color_picker/flex_color_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/chat.dart';
 import '../workspace/workspace.dart';
 import '../sidebar/sidebar.dart';
 import '../sidebar/notes_panel.dart';
@@ -284,9 +286,11 @@ class _ZenHomePageState extends State<ZenHomePage> {
     }
   }
 
-  Future<void> _sendMessage(String text) async {
+  Future<void> _sendMessage(String text, {List<String> fileIds = const []}) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
+    final hasText = trimmed.isNotEmpty;
+    final hasFiles = fileIds.isNotEmpty;
+    if (!hasText && !hasFiles) return;
 
     if (!_appState.isAuthenticated) {
       _openUserOverlay();
@@ -302,7 +306,9 @@ class _ZenHomePageState extends State<ZenHomePage> {
     String? chatId = _selectedChatId;
 
     if (chatId == null) {
-      final created = await _appState.createChat(title: _deriveChatTitle(trimmed));
+      final created = await _appState.createChat(
+        title: _deriveChatTitle(hasText ? trimmed : ''),
+      );
       if (created == null) return;
       chatId = created.id;
       if (!mounted) return;
@@ -312,8 +318,91 @@ class _ZenHomePageState extends State<ZenHomePage> {
       });
     }
 
-  await _appState.sendMessage(chatId: chatId, content: trimmed);
-  await _appState.ensureChatLoaded(chatId);
+	await _appState.sendMessage(
+		chatId: chatId,
+		content: hasText ? trimmed : null,
+		fileIds: fileIds,
+	);
+	await _appState.ensureChatLoaded(chatId);
+  }
+
+  Future<ChatFile?> _uploadFileForChat(String chatId) async {
+    if (!_appState.isAuthenticated) {
+      _openUserOverlay();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to upload files.')),
+        );
+      });
+      return null;
+    }
+
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) {
+        return null;
+      }
+      final file = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        if (!mounted) return null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to read the selected file. Please try again.'),
+          ),
+        );
+        return null;
+      }
+      final uploaded = await _appState.uploadChatFile(
+        chatId: chatId,
+        fileName: file.name,
+        bytes: bytes,
+      );
+      if (uploaded != null) {
+        await _appState.ensureChatLoaded(chatId);
+      }
+      return uploaded;
+    } catch (e) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('File upload failed: $e')),
+      );
+      return null;
+    }
+  }
+
+  Future<ChatFile?> _uploadFileFromComposer() async {
+    if (!_appState.isAuthenticated) {
+      _openUserOverlay();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please sign in to upload files.'),
+          ),
+        );
+      });
+      return null;
+    }
+
+    String? chatId = _selectedChatId;
+    if (chatId == null) {
+      final created = await _appState.createChat(title: 'New chat');
+      if (created == null) {
+        return null;
+      }
+      chatId = created.id;
+      if (!mounted) return null;
+      setState(() {
+        _selectedChatId = chatId;
+        _selectedIndex = 0;
+      });
+    }
+    return _uploadFileForChat(chatId);
   }
 
   void _openUserOverlay() {
@@ -371,6 +460,8 @@ class _ZenHomePageState extends State<ZenHomePage> {
                         isSendingMessage: _appState.isSendingMessage,
                         onCreateChat: _onCreateChat,
                         onSendMessage: _sendMessage,
+                        onUploadFile: _uploadFileForChat,
+                        onUploadFileForComposer: _uploadFileFromComposer,
                       ),
                     ),
 

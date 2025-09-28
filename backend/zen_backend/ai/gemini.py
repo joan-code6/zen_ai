@@ -114,3 +114,39 @@ def generate_reply(
         raise GeminiAPIError("Gemini API returned an empty response")
 
     return reply_text
+
+
+def generate_chat_title(
+    user_message: str,
+    assistant_message: str,
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+    timeout: int = 20,
+) -> str:
+    """Produce a concise chat title based on the opening exchange."""
+
+    instruction = (
+        "Create a short, descriptive title for this conversation in six words or fewer. "
+        "Return only the title text without punctuation at the end."
+    )
+
+    conversation = (
+        f"User: {user_message.strip()}\n"
+        f"Assistant: {assistant_message.strip()}"
+    )
+
+    messages = [
+        {"role": "system", "content": instruction},
+        {"role": "user", "content": conversation},
+    ]
+
+    try:
+        title = generate_reply(messages, api_key=api_key, model=model, timeout=timeout)
+    except GeminiAPIError as exc:
+        raise GeminiAPIError(f"Failed to generate chat title: {exc}") from exc
+
+    clean_title = title.splitlines()[0].strip().strip('.;:')
+    if len(clean_title) > 80:
+        clean_title = clean_title[:80].rstrip()
+
+    return clean_title or "New chat"

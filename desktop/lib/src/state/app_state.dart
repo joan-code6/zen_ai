@@ -13,6 +13,7 @@ class AppState extends ChangeNotifier {
 	bool _isAuthenticating = false;
 	bool _isSyncingChats = false;
 	bool _isSendingMessage = false;
+	bool _isUploadingFile = false;
 	final List<Chat> _chats = [];
 	final Map<String, Chat> _chatCache = {};
 	final Map<String, bool> _chatLoading = {};
@@ -26,6 +27,7 @@ class AppState extends ChangeNotifier {
 	bool get isAuthenticating => _isAuthenticating;
 	bool get isSyncingChats => _isSyncingChats;
 	bool get isSendingMessage => _isSendingMessage;
+	bool get isUploadingFile => _isUploadingFile;
 	bool get isRestoringSession => _isRestoringSession;
 
 	List<Chat> get chats => List.unmodifiable(_chats);
@@ -154,17 +156,32 @@ class AppState extends ChangeNotifier {
 		notifyListeners();
 		try {
 			final fetched = await BackendService.listChats(currentUid);
-			_chats
-				..clear()
-				..addAll(fetched);
+			final fetchedIds = fetched.map((chat) => chat.id).toSet();
+			_chatCache.removeWhere((key, value) => !fetchedIds.contains(key));
+			final merged = <Chat>[];
 			for (final chat in fetched) {
 				final existing = _chatCache[chat.id];
-				if (existing != null && existing.messages.isNotEmpty) {
-					_chatCache[chat.id] = chat.copyWith(messages: List.of(existing.messages));
+				if (existing != null) {
+					final preservedMessages = existing.messages.isNotEmpty
+						? List<ChatMessage>.from(existing.messages)
+						: <ChatMessage>[];
+					final preservedFiles = existing.files.isNotEmpty
+						? List<ChatFile>.from(existing.files)
+						: <ChatFile>[];
+					final mergedChat = chat.copyWith(
+						messages: preservedMessages,
+						files: preservedFiles,
+					);
+					_chatCache[chat.id] = mergedChat;
+					merged.add(mergedChat);
 				} else {
 					_chatCache[chat.id] = chat;
+					merged.add(chat);
 				}
 			}
+			_chats
+				..clear()
+				..addAll(merged);
 		} on BackendException catch (e) {
 			_setError(e.message);
 		} catch (e) {
@@ -283,12 +300,20 @@ class AppState extends ChangeNotifier {
 
 	Future<MessageSendResult?> sendMessage({
 		required String chatId,
-		required String content,
+		String? content,
 		String role = 'user',
+		List<String> fileIds = const [],
 	}) async {
 		final currentUid = uid;
 		if (currentUid == null) {
 			_setError('Please sign in to send messages.');
+			return null;
+		}
+
+		final trimmedContent = content?.trim();
+		final hasContent = trimmedContent != null && trimmedContent.isNotEmpty;
+		if (!hasContent && fileIds.isEmpty) {
+			_setError('Please enter a message or attach a file.');
 			return null;
 		}
 
@@ -298,8 +323,9 @@ class AppState extends ChangeNotifier {
 			final result = await BackendService.sendMessage(
 				chatId: chatId,
 				uid: currentUid,
-				content: content,
+				content: hasContent ? trimmedContent : null,
 				role: role,
+				fileIds: fileIds.isEmpty ? null : fileIds,
 			);
 			final existing = _chatCache[chatId];
 			if (existing != null) {
@@ -328,16 +354,79 @@ class AppState extends ChangeNotifier {
 		return null;
 	}
 
+	Future<ChatFile?> uploadChatFile({
+		required String chatId,
+		required String fileName,
+		required List<int> bytes,
+		String? mimeType,
+	}) async {
+		final currentUid = uid;
+		if (currentUid == null) {
+			_setError('Please sign in to upload files.');
+			return null;
+		}
+
+		_isUploadingFile = true;
+		notifyListeners();
+		try {
+			final uploaded = await BackendService.uploadChatFile(
+				chatId: chatId,
+				uid: currentUid,
+				bytes: bytes,
+				fileName: fileName,
+				mimeType: mimeType,
+			);
+			final existing = _chatCache[chatId];
+			if (existing != null) {
+				final files = List<ChatFile>.from(existing.files)
+					..removeWhere((f) => f.id == uploaded.id)
+					..add(uploaded);
+				final updatedChat = existing.copyWith(
+					files: files,
+					updatedAt: uploaded.createdAt,
+				);
+				_upsertChat(updatedChat, moveToTop: false);
+			} else {
+				await getChat(chatId);
+			}
+			_setInfo('Uploaded ${uploaded.fileName}');
+			return uploaded;
+		} on BackendException catch (e) {
+			_setError(e.message);
+		} catch (e) {
+			_setError('Failed to upload file: $e');
+		}
+		finally {
+			_isUploadingFile = false;
+			notifyListeners();
+		}
+		return null;
+	}
+
 	void _upsertChat(Chat chat, {required bool moveToTop}) {
-		_chatCache[chat.id] = chat;
+		final existing = _chatCache[chat.id];
+		Chat merged = chat;
+		if (existing != null) {
+			final mergedMessages = chat.messages.isNotEmpty
+				? chat.messages
+				: existing.messages;
+			final mergedFiles = chat.files.isNotEmpty
+				? chat.files
+				: existing.files;
+			merged = chat.copyWith(
+				messages: List<ChatMessage>.from(mergedMessages),
+				files: List<ChatFile>.from(mergedFiles),
+			);
+		}
+		_chatCache[chat.id] = merged;
 		final index = _chats.indexWhere((c) => c.id == chat.id);
 		if (index == -1) {
-			_chats.insert(0, chat);
+			_chats.insert(0, merged);
 		} else {
-			_chats[index] = chat;
+			_chats[index] = merged;
 			if (moveToTop && index != 0) {
 				_chats.removeAt(index);
-				_chats.insert(0, chat);
+				_chats.insert(0, merged);
 			}
 		}
 		if (moveToTop && _chats.length > 1) {

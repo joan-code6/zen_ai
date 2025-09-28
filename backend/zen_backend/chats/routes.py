@@ -10,13 +10,15 @@ from flask import Blueprint, current_app, jsonify, request, send_file, url_for
 from firebase_admin import firestore as firebase_firestore
 from google.api_core import exceptions as google_exceptions
 from werkzeug.utils import secure_filename
+import logging
 import re
 import mimetypes
 
-from ..ai.gemini import GeminiAPIError, generate_reply
+from ..ai.gemini import GeminiAPIError, generate_reply, generate_chat_title
 from ..firebase import get_firestore_client
 
 chats_bp = Blueprint("chats", __name__, url_prefix="/chats")
+log = logging.getLogger(__name__)
 
 
 def _parse_json_body() -> dict[str, Any]:
@@ -902,6 +904,34 @@ def add_message(chat_id: str) -> tuple[Any, int]:
         return _firestore_error_response(exc)
     except google_exceptions.GoogleAPICallError as exc:
         return _firestore_error_response(exc)
+
+    chat_title = (chat_data.get("title") or "").strip()
+    default_titles = {"", "new chat"}
+    should_update_title = chat_title.lower() in default_titles or chat_title == content
+    updated_title: str | None = None
+
+    if should_update_title:
+        user_prompt_for_title = user_message_data.get("content", "") or history_messages[-1].get("content", "")
+        try:
+            updated_title = generate_chat_title(
+                user_message=user_prompt_for_title,
+                assistant_message=ai_reply,
+                api_key=gemini_api_key,
+            )
+        except GeminiAPIError as exc:
+            log.warning("Unable to generate chat title: %s", exc)
+
+    if updated_title:
+        try:
+            chat_ref.update({
+                "title": updated_title,
+                "updatedAt": ai_message_data["createdAt"],
+            })
+            chat_data["title"] = updated_title
+        except google_exceptions.PermissionDenied as exc:
+            log.warning("Failed to persist chat title: %s", exc)
+        except google_exceptions.GoogleAPICallError as exc:
+            log.warning("Failed to persist chat title: %s", exc)
 
     return (
         jsonify(

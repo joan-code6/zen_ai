@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../models/auth.dart';
 import '../models/chat.dart';
@@ -183,11 +184,16 @@ class BackendService {
     if (data is Map<String, dynamic>) {
       final chatJson = data['chat'] as Map<String, dynamic>?;
       final messages = data['messages'] as List? ?? const [];
+      final files = data['files'] as List? ?? const [];
       if (chatJson != null) {
         return Chat.fromJson(
           chatJson,
           messages: messages
               .map((m) => ChatMessage.fromJson(m as Map<String, dynamic>))
+              .toList(),
+          files: files
+              .whereType<Map<String, dynamic>>()
+              .map(ChatFile.fromJson)
               .toList(),
         );
       }
@@ -201,13 +207,15 @@ class BackendService {
   static Future<MessageSendResult> sendMessage({
     required String chatId,
     required String uid,
-    required String content,
+    String? content,
     String role = 'user',
+    List<String>? fileIds,
   }) async {
-    final payload = {
+    final payload = <String, dynamic>{
       'uid': uid,
-      'content': content,
       'role': role,
+      if (content != null && content.isNotEmpty) 'content': content,
+      if (fileIds != null && fileIds.isNotEmpty) 'fileIds': fileIds,
     };
     final data = await _post('/chats/$chatId/messages', payload);
     if (data is Map<String, dynamic>) {
@@ -216,7 +224,12 @@ class BackendService {
       return MessageSendResult(
         userMessage: user is Map<String, dynamic>
             ? ChatMessage.fromJson(user)
-            : ChatMessage(id: DateTime.now().toIso8601String(), role: role, content: content),
+            : ChatMessage(
+                id: DateTime.now().toIso8601String(),
+                role: role,
+                content: content ?? '',
+                fileIds: fileIds ?? const [],
+              ),
         assistantMessage: assistant is Map<String, dynamic>
             ? ChatMessage.fromJson(assistant)
             : null,
@@ -226,6 +239,58 @@ class BackendService {
     throw BackendException(
       statusCode: 500,
       message: 'Invalid message response',
+    );
+  }
+
+  static Future<ChatFile> uploadChatFile({
+    required String chatId,
+    required String uid,
+    required List<int> bytes,
+    required String fileName,
+    String? mimeType,
+  }) async {
+    final uri = await _buildUri('/chats/$chatId/files');
+    final request = http.MultipartRequest('POST', uri)
+      ..fields['uid'] = uid;
+
+    http.MultipartFile multipartFile;
+    if (mimeType != null && mimeType.isNotEmpty) {
+      try {
+        multipartFile = http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: fileName,
+          contentType: MediaType.parse(mimeType),
+        );
+      } catch (_) {
+        multipartFile = http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: fileName,
+        );
+      }
+    } else {
+      multipartFile = http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: fileName,
+      );
+    }
+
+    request.files.add(multipartFile);
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    final data = _decodeResponse(response);
+    if (data is Map<String, dynamic>) {
+      final fileJson = data['file'];
+      if (fileJson is Map<String, dynamic>) {
+        return ChatFile.fromJson(fileJson);
+      }
+    }
+    throw BackendException(
+      statusCode: response.statusCode,
+      message: 'Invalid file upload response',
     );
   }
 

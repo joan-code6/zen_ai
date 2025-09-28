@@ -259,6 +259,7 @@ Notes about authentication/authorization:
   2. Stores the user message in the chat's `messages` subcollection and updates chat.updatedAt.
   3. If `GEMINI_API_KEY` is not configured, returns 503 not_configured and includes the stored `userMessage` in the response.
   4. If `GEMINI_API_KEY` is configured, the backend reads the full message history (including text previews of any referenced files and the optional systemPrompt), calls the Gemini model via the `genai` client, stores an assistant message with the model reply, and returns both `userMessage` and `assistantMessage`.
+  5. When the first assistant reply is successfully generated, the backend asks Gemini to produce a concise chat title (≤6 words) for the conversation and updates the chat record if the existing title is still the default or matches the user's opening question.
 
 - Success 201 response body (when Gemini is configured):
 
