@@ -25,4 +25,5 @@ Zen can do the following with notes:
 - read note
 - edit note
 - delete note
+
 The user has accses to all of these tools too.
