@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/auth.dart';
 import '../models/chat.dart';
+import '../models/note.dart';
 import '../services/backend_service.dart';
 import 'user_preferences.dart';
 
@@ -62,11 +63,11 @@ String _oauthErrorPage(String? description) =>
 
 const String _desktopGoogleClientId = String.fromEnvironment(
   'GOOGLE_OAUTH_CLIENT_ID',
-  defaultValue: '',
+  defaultValue: '1093494246167-dahun0rhtkfe2fec57jqdkpq7ep6s4p5.apps.googleusercontent.com',
 );
 const String _desktopGoogleClientSecret = String.fromEnvironment(
   'GOOGLE_OAUTH_CLIENT_SECRET',
-  defaultValue: '',
+  defaultValue: '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',
 );
 const List<String> _googleOAuthScopes = <String>['openid', 'email', 'profile'];
 
@@ -84,6 +85,9 @@ class AppState extends ChangeNotifier {
   final List<Chat> _chats = [];
   final Map<String, Chat> _chatCache = {};
   final Map<String, bool> _chatLoading = {};
+  final List<Note> _notes = [];
+  final Map<String, Note> _noteCache = {};
+  bool _isSyncingNotes = false;
   String? _lastError;
   String? _lastInfo;
   final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: const ['email']);
@@ -104,10 +108,17 @@ class AppState extends ChangeNotifier {
   UserProfile? get profile => _session?.profile;
 
   List<Chat> get chats => List.unmodifiable(_chats);
+  List<Note> get notes => List.unmodifiable(_notes);
+  bool get isSyncingNotes => _isSyncingNotes;
 
   Chat? chatById(String? id) {
     if (id == null) return null;
     return _chatCache[id];
+  }
+
+  Note? noteById(String? id) {
+    if (id == null) return null;
+    return _noteCache[id];
   }
 
   bool isChatLoading(String chatId) => _chatLoading[chatId] ?? false;
@@ -147,6 +158,9 @@ class AppState extends ChangeNotifier {
     _photoUrl = null;
     _isNewUser = false;
     _isUpdatingProfile = false;
+    _notes.clear();
+    _noteCache.clear();
+    _isSyncingNotes = false;
   }
 
   Future<bool> _finalizeSession(
@@ -163,7 +177,10 @@ class AppState extends ChangeNotifier {
         _displayName!.isEmpty) {
       await refreshProfile(silent: true);
     }
-    await fetchChats();
+    await Future.wait([
+      fetchChats(),
+      fetchNotes(),
+    ]);
     final effectiveDisplayName =
         _displayName != null && _displayName!.isNotEmpty
         ? _displayName!
@@ -287,7 +304,10 @@ class AppState extends ChangeNotifier {
         }
       }
       if (_session != null) {
-        await fetchChats();
+        await Future.wait([
+          fetchChats(),
+          fetchNotes(),
+        ]);
       }
     } finally {
       _isRestoringSession = false;
@@ -563,6 +583,9 @@ class AppState extends ChangeNotifier {
     _chats.clear();
     _chatCache.clear();
     _chatLoading.clear();
+    _notes.clear();
+    _noteCache.clear();
+    _isSyncingNotes = false;
     await UserPreferences.clearAuthSession();
     try {
       await _googleSignIn.signOut();
@@ -570,6 +593,168 @@ class AppState extends ChangeNotifier {
       // ignore platform-specific sign out issues
     }
     notifyListeners();
+  }
+
+  Future<void> fetchNotes({bool silent = false}) async {
+    final currentUid = uid;
+    if (currentUid == null) return;
+
+    final shouldNotifyProgress = !silent;
+    if (shouldNotifyProgress) {
+      _isSyncingNotes = true;
+      notifyListeners();
+    }
+
+    try {
+      final fetched = await BackendService.listNotes(currentUid);
+      _notes
+        ..clear()
+        ..addAll(fetched);
+      _noteCache
+        ..clear();
+      for (final note in fetched) {
+        _noteCache[note.id] = note;
+      }
+    } on BackendException catch (e) {
+      if (!silent) {
+        _setError(e.message);
+      }
+    } catch (e) {
+      if (!silent) {
+        _setError('Failed to load notes: $e');
+      }
+    } finally {
+      if (shouldNotifyProgress) {
+        _isSyncingNotes = false;
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<Note?> createNote({
+    String? title,
+    String? content,
+    List<String>? keywords,
+    List<String>? triggerWords,
+  }) async {
+    final currentUid = uid;
+    if (currentUid == null) {
+      _setError('Please sign in to create notes.');
+      return null;
+    }
+
+    try {
+      final note = await BackendService.createNote(
+        uid: currentUid,
+        title: title,
+        content: content,
+        keywords: keywords,
+        triggerWords: triggerWords,
+      );
+      _upsertNote(note);
+      notifyListeners();
+      return note;
+    } on BackendException catch (e) {
+      _setError(e.message);
+    } catch (e) {
+      _setError('Failed to create note: $e');
+    }
+    return null;
+  }
+
+  Future<Note?> updateNote({
+    required String noteId,
+    String? title,
+    String? content,
+    List<String>? keywords,
+    List<String>? triggerWords,
+  }) async {
+    final currentUid = uid;
+    if (currentUid == null) {
+      _setError('Please sign in to update notes.');
+      return null;
+    }
+
+    try {
+      final note = await BackendService.updateNote(
+        noteId: noteId,
+        uid: currentUid,
+        title: title,
+        content: content,
+        keywords: keywords,
+        triggerWords: triggerWords,
+      );
+      _upsertNote(note);
+      notifyListeners();
+      return note;
+    } on BackendException catch (e) {
+      _setError(e.message);
+    } on ArgumentError catch (e) {
+      _setError(e.message);
+    } catch (e) {
+      _setError('Failed to update note: $e');
+    }
+    return null;
+  }
+
+  Future<bool> deleteNote(String noteId) async {
+    final currentUid = uid;
+    if (currentUid == null) {
+      _setError('Please sign in to delete notes.');
+      return false;
+    }
+
+    try {
+      await BackendService.deleteNote(noteId: noteId, uid: currentUid);
+      _notes.removeWhere((note) => note.id == noteId);
+      _noteCache.remove(noteId);
+      notifyListeners();
+      return true;
+    } on BackendException catch (e) {
+      _setError(e.message);
+    } catch (e) {
+      _setError('Failed to delete note: $e');
+    }
+    return false;
+  }
+
+  Future<List<Note>> searchNotes({
+    String? query,
+    List<String>? keywords,
+    List<String>? triggerWords,
+    int? limit,
+  }) async {
+    final currentUid = uid;
+    if (currentUid == null) {
+      _setError('Please sign in to search notes.');
+      return const <Note>[];
+    }
+
+    try {
+      return await BackendService.searchNotes(
+        uid: currentUid,
+        query: query,
+        keywords: keywords,
+        triggerWords: triggerWords,
+        limit: limit,
+      );
+    } on BackendException catch (e) {
+      _setError(e.message);
+    } catch (e) {
+      _setError('Failed to search notes: $e');
+    }
+    return const <Note>[];
+  }
+
+  void _upsertNote(Note note) {
+    _noteCache[note.id] = note;
+    final existingIndex = _notes.indexWhere((element) => element.id == note.id);
+    if (existingIndex >= 0) {
+      _notes[existingIndex] = note;
+    } else {
+      _notes.add(note);
+    }
+    _notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
   Future<void> fetchChats() async {

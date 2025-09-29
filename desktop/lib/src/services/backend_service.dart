@@ -6,6 +6,7 @@ import 'package:http_parser/http_parser.dart';
 
 import '../models/auth.dart';
 import '../models/chat.dart';
+import '../models/note.dart';
 
 class BackendException implements Exception {
   final int statusCode;
@@ -393,6 +394,150 @@ class BackendService {
       statusCode: response.statusCode,
       message: 'Invalid file upload response',
     );
+  }
+
+  static Future<List<Note>> listNotes(
+    String uid, {
+    int? limit,
+  }) async {
+    final params = <String, dynamic>{'uid': uid};
+    if (limit != null && limit > 0) {
+      params['limit'] = limit;
+    }
+    final data = await _get('/notes', queryParameters: params);
+    if (data is Map<String, dynamic>) {
+      final items = data['items'];
+      if (items is List) {
+        return items
+            .whereType<Map<String, dynamic>>()
+            .map(Note.fromJson)
+            .toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      }
+    }
+    return const <Note>[];
+  }
+
+  static Future<Note> createNote({
+    required String uid,
+    String? title,
+    String? content,
+    List<String>? keywords,
+    List<String>? triggerWords,
+  }) async {
+    final payload = <String, dynamic>{
+      'uid': uid,
+      if (title != null) 'title': title,
+      if (content != null) ...{
+        'content': content,
+        'excerpt': content,
+      },
+      if (keywords != null) 'keywords': keywords,
+      if (triggerWords != null) 'triggerWords': triggerWords,
+    };
+
+    final data = await _post('/notes', payload);
+    if (data is Map<String, dynamic>) {
+      return Note.fromJson(data);
+    }
+    throw BackendException(
+      statusCode: 500,
+      message: 'Invalid note creation response',
+    );
+  }
+
+  static Future<Note> getNote({
+    required String noteId,
+    required String uid,
+  }) async {
+    final data = await _get(
+      '/notes/$noteId',
+      queryParameters: {'uid': uid},
+    );
+    if (data is Map<String, dynamic>) {
+      return Note.fromJson(data);
+    }
+    throw BackendException(
+      statusCode: 500,
+      message: 'Invalid note response',
+    );
+  }
+
+  static Future<Note> updateNote({
+    required String noteId,
+    required String uid,
+    String? title,
+    String? content,
+    String? excerpt,
+    List<String>? keywords,
+    List<String>? triggerWords,
+  }) async {
+    final payload = <String, dynamic>{
+      'uid': uid,
+    };
+    if (title != null) payload['title'] = title;
+    final resolvedContent = content ?? excerpt;
+    if (resolvedContent != null) {
+      payload['content'] = resolvedContent;
+      payload['excerpt'] = resolvedContent;
+    }
+    if (keywords != null) payload['keywords'] = keywords;
+    if (triggerWords != null) payload['triggerWords'] = triggerWords;
+
+    if (payload.length <= 1) {
+      throw ArgumentError('No updatable fields supplied for note update.');
+    }
+
+    final data = await _patch('/notes/$noteId', payload);
+    if (data is Map<String, dynamic>) {
+      return Note.fromJson(data);
+    }
+    throw BackendException(
+      statusCode: 500,
+      message: 'Invalid note update response',
+    );
+  }
+
+  static Future<void> deleteNote({
+    required String noteId,
+    required String uid,
+  }) async {
+    await _delete('/notes/$noteId', {'uid': uid});
+  }
+
+  static Future<List<Note>> searchNotes({
+    required String uid,
+    String? query,
+    List<String>? keywords,
+    List<String>? triggerWords,
+    int? limit,
+  }) async {
+    final params = <String, dynamic>{'uid': uid};
+    if (query != null && query.trim().isNotEmpty) {
+      params['q'] = query.trim();
+    }
+    if (keywords != null && keywords.isNotEmpty) {
+      params['keywords'] = keywords;
+    }
+    if (triggerWords != null && triggerWords.isNotEmpty) {
+      params['triggerWords'] = triggerWords;
+    }
+    if (limit != null && limit > 0) {
+      params['limit'] = limit;
+    }
+
+    final data = await _get('/notes/search', queryParameters: params);
+    if (data is Map<String, dynamic>) {
+      final items = data['items'];
+      if (items is List) {
+        return items
+            .whereType<Map<String, dynamic>>()
+            .map(Note.fromJson)
+            .toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      }
+    }
+    return const <Note>[];
   }
 
   static Future<dynamic> _get(
