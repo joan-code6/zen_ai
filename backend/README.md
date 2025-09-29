@@ -9,6 +9,7 @@ This folder hosts the Flask API for the Zen assistant. The current milestone cov
 - REST endpoints for sign-up, email/password login, Google Sign-In exchange, and ID-token verification
 - Firestore-backed chat storage (create, list, update, delete)
 - Firestore-backed user profile storage (email, display name, photo)
+- Firestore-backed personal notes with trigger-word search and AI context injection
 - Gemini-powered conversation replies with history-aware prompts (default model: `gemini-2.0-flash`)
 - Health check endpoint for monitoring (`/health`)
 

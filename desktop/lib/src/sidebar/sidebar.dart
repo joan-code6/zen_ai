@@ -15,6 +15,7 @@ class ZenSidebar extends StatefulWidget {
   final bool isLoadingChats;
   final bool isAuthenticated;
   final String userDisplayName;
+  final String? userEmail;
 
   const ZenSidebar({
     super.key,
@@ -30,6 +31,7 @@ class ZenSidebar extends StatefulWidget {
     this.isLoadingChats = false,
     this.isAuthenticated = false,
     this.userDisplayName = 'Guest',
+    this.userEmail,
   });
 
   @override
@@ -63,15 +65,9 @@ class _ZenSidebarState extends State<ZenSidebar> {
         ),
         items: [
           if (widget.onChatRename != null)
-            const PopupMenuItem<String>(
-              value: 'rename',
-              child: Text('Rename'),
-            ),
+            const PopupMenuItem<String>(value: 'rename', child: Text('Rename')),
           if (widget.onChatDelete != null)
-            const PopupMenuItem<String>(
-              value: 'delete',
-              child: Text('Delete'),
-            ),
+            const PopupMenuItem<String>(value: 'delete', child: Text('Delete')),
         ],
       );
 
@@ -282,11 +278,7 @@ class _ZenSidebarState extends State<ZenSidebar> {
                                 final position = box.localToGlobal(
                                   box.size.center(Offset.zero),
                                 );
-                                _showChatContextMenu(
-                                  context,
-                                  position,
-                                  c,
-                                );
+                                _showChatContextMenu(context, position, c);
                               }
                             },
                             child: Material(
@@ -305,7 +297,9 @@ class _ZenSidebarState extends State<ZenSidebar> {
                                         width: 36,
                                         height: 36,
                                         decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                           color: Theme.of(
                                             context,
                                           ).colorScheme.primary.withAlpha(20),
@@ -407,18 +401,14 @@ class _ZenSidebarState extends State<ZenSidebar> {
                         fit: FlexFit.loose,
                         child: _SidebarRevealText(
                           expanded: _hovering,
-                          maxWidth: 140,
+                          maxWidth: 160,
                           child: Padding(
                             padding: const EdgeInsets.only(left: 12.0),
-                            child: Text(
-                              widget.isAuthenticated
-                                  ? widget.userDisplayName
-                                  : 'Sign in',
-                              style: Theme.of(context).textTheme.titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w600),
-                              maxLines: 1,
-                              softWrap: false,
-                              overflow: TextOverflow.clip,
+                            child: _SidebarAccountText(
+                              isAuthenticated: widget.isAuthenticated,
+                              displayName: widget.userDisplayName,
+                              email: widget.userEmail,
+                              textTheme: Theme.of(context).textTheme,
                             ),
                           ),
                         ),
@@ -512,6 +502,69 @@ class _SidebarButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SidebarAccountText extends StatelessWidget {
+  final bool isAuthenticated;
+  final String displayName;
+  final String? email;
+  final TextTheme textTheme;
+
+  const _SidebarAccountText({
+    required this.isAuthenticated,
+    required this.displayName,
+    required this.email,
+    required this.textTheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isAuthenticated) {
+      return Text(
+        'Sign in',
+        style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.clip,
+      );
+    }
+
+    final trimmedName = displayName.trim();
+    final trimmedEmail = email?.trim();
+    final primaryText = trimmedName.isNotEmpty
+        ? trimmedName
+        : (trimmedEmail?.isNotEmpty == true ? trimmedEmail! : 'Account');
+    final showSecondary =
+        trimmedEmail != null &&
+        trimmedEmail.isNotEmpty &&
+        trimmedEmail.toLowerCase() != primaryText.toLowerCase();
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          primaryText,
+          style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (showSecondary) ...[
+          const SizedBox(height: 2),
+          Text(
+            trimmedEmail,
+            style: textTheme.bodySmall?.copyWith(
+              color: textTheme.bodySmall?.color?.withOpacity(0.72),
+            ),
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ],
     );
   }
 }

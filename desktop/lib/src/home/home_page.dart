@@ -8,6 +8,7 @@ import 'package:mime/mime.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../models/chat.dart';
+import '../models/note.dart';
 import '../workspace/workspace.dart';
 import '../sidebar/sidebar.dart';
 import '../sidebar/notes_panel.dart';
@@ -38,17 +39,6 @@ class _ZenHomePageState extends State<ZenHomePage> {
   late AppState _appState;
   // 0 = New Chat, 1 = Search, 2 = Notes
   int _selectedIndex = 0;
-
-  // notes storage (in-memory for now)
-  final List<Note> _notes = List.generate(
-    4,
-    (i) => Note(
-      id: DateTime.now().millisecondsSinceEpoch.toString() + '_$i',
-      title: 'Favourite Color',
-      excerpt: "Alice's favourite color is ...",
-      updated: DateTime.now().subtract(Duration(minutes: 10 * (i + 1))),
-    ),
-  );
 
   // currently selected note shown in the right-side notes panel
   Note? _notesPanelSelectedNote;
@@ -113,11 +103,19 @@ class _ZenHomePageState extends State<ZenHomePage> {
     }
 
     final selected = _selectedChatId;
-    if (selected != null && _appState.chatById(selected) == null) {
-      setState(() => _selectedChatId = null);
-    } else {
-      setState(() {});
-    }
+    final selectedNoteId = _notesPanelSelectedNote?.id;
+    final refreshedNote = selectedNoteId != null
+        ? _appState.noteById(selectedNoteId)
+        : null;
+
+    setState(() {
+      if (selected != null && _appState.chatById(selected) == null) {
+        _selectedChatId = null;
+      }
+      if (selectedNoteId != null) {
+        _notesPanelSelectedNote = refreshedNote;
+      }
+    });
   }
 
   void _onSidebarItemSelected(int index) {
@@ -136,16 +134,22 @@ class _ZenHomePageState extends State<ZenHomePage> {
     });
   }
 
-  void _onCreateNote() {
+  void _onCreateNote() async {
+    if (!_appState.isAuthenticated) {
+      _openUserOverlay();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to create notes.')),
+        );
+      });
+      return;
+    }
+
+    final created = await _appState.createNote(title: 'New note');
+    if (!mounted || created == null) return;
     setState(() {
-      final newNote = Note(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: 'New note',
-        excerpt: '',
-        updated: DateTime.now(),
-      );
-      _notes.insert(0, newNote);
-      _notesPanelSelectedNote = newNote;
+      _notesPanelSelectedNote = created;
       _selectedIndex = 2;
     });
   }
@@ -161,23 +165,24 @@ class _ZenHomePageState extends State<ZenHomePage> {
     });
   }
 
-  void _onSaveNote(Note updated) {
+  void _onSaveNote(Note updated) async {
+    final saved = await _appState.updateNote(
+      noteId: updated.id,
+      title: updated.title,
+      content: updated.content,
+      keywords: updated.keywords,
+      triggerWords: updated.triggerWords,
+    );
+    if (!mounted || saved == null) return;
     setState(() {
-      final idx = _notes.indexWhere((n) => n.id == updated.id);
-      if (idx >= 0) {
-        _notes[idx] = updated;
-      } else {
-        // if it wasn't present for some reason, add to top
-        _notes.insert(0, updated);
-      }
-      // keep the panel showing the updated note
-      _notesPanelSelectedNote = updated;
+      _notesPanelSelectedNote = saved;
     });
   }
 
-  void _onDeleteNote(Note toDelete) {
+  void _onDeleteNote(Note toDelete) async {
+    final removed = await _appState.deleteNote(toDelete.id);
+    if (!mounted || !removed) return;
     setState(() {
-      _notes.removeWhere((n) => n.id == toDelete.id);
       if (_notesPanelSelectedNote?.id == toDelete.id) {
         _notesPanelSelectedNote = null;
       }
@@ -550,7 +555,9 @@ class _ZenHomePageState extends State<ZenHomePage> {
             onChatRename: _onRenameChat,
             onChatDelete: _onDeleteChat,
             isAuthenticated: _appState.isAuthenticated,
-            userDisplayName: _appState.email ?? 'Guest',
+            userDisplayName:
+                _appState.displayName ?? _appState.email ?? 'Guest',
+            userEmail: _appState.email,
           ),
 
           // Main content area wrapped in a Stack so overlays (Spotlight) can be positioned
@@ -627,8 +634,9 @@ class _ZenHomePageState extends State<ZenHomePage> {
                                       ),
                                       Expanded(
                                         child: ZenNotesPanel(
-                                          notes: _notes,
+                                          notes: _appState.notes,
                                           selectedNote: _notesPanelSelectedNote,
+                                          isLoading: _appState.isSyncingNotes,
                                           onCreate: _onCreateNote,
                                           onNoteSelected: _onNoteSelected,
                                           onSave: _onSaveNote,
@@ -746,10 +754,17 @@ class _ZenHomePageState extends State<ZenHomePage> {
       return false;
     }
 
+    final notes = _appState.notes;
     final noteMatches = q.isEmpty
-        ? _notes.take(6).toList()
-        : _notes
-              .where((n) => matches(n.title, q) || matches(n.excerpt, q))
+        ? notes.take(6).toList()
+        : notes
+              .where(
+                (n) =>
+                    matches(n.title, q) ||
+                    matches(n.content, q) ||
+                    n.keywords.any((k) => matches(k, q)) ||
+                    n.triggerWords.any((t) => matches(t, q)),
+              )
               .toList();
 
     final chats = _appState.chats;
@@ -770,7 +785,7 @@ class _ZenHomePageState extends State<ZenHomePage> {
           leading: const Icon(Icons.note),
           title: Text(n.title),
           subtitle: Text(
-            n.excerpt,
+            n.content,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

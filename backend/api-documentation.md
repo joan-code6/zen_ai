@@ -310,6 +310,101 @@ File handling endpoints let clients upload supporting documents that can be refe
 
 -------------------------------------------------------------------------------
 
+## Notes API
+
+Notes provide a lightweight memory store per user. All endpoints are mounted under the `/notes` prefix.
+
+High-level data model (Firestore collection):
+- `notes` collection: documents include `uid`, `title`, `content`, `keywords`, `triggerWords`, lowercase variants for search, and Firestore timestamps `createdAt`/`updatedAt`.
+- Document IDs serve as the stable `id` returned to clients.
+
+All endpoints return note objects in the following shape:
+
+```json
+{
+  "id": "note-doc-id",
+  "uid": "firebase-uid",
+  "title": "Project preferences",
+  "content": "Full body text",
+  "excerpt": "Full body text",
+  "keywords": ["project", "preferences"],
+  "triggerWords": ["project x"],
+  "triggerwords": ["project x"],
+  "createdAt": "2025-09-27T12:34:56.000000+00:00",
+  "updatedAt": "2025-09-28T08:15:30.000000+00:00"
+}
+```
+
+### GET /notes?uid=<uid>&limit=<optional>
+- Description: List notes for a user ordered by `updatedAt` (newest first).
+- Query parameters:
+  - `uid` (required) — Firebase UID.
+  - `limit` (optional) — positive integer cap (max 200).
+- Success 200 response body: `{ "items": [ ...note objects... ] }`.
+- Errors: 400 validation_error if `uid` missing; 503 notes_store_error on Firestore issues.
+
+### POST /notes
+- Description: Create a new note. Missing titles default to `"New note"`; missing content defaults to an empty string.
+- Request JSON body:
+
+```json
+{
+  "uid": "firebase-uid",
+  "title": "Optional title",
+  "content": "Optional body",
+  "keywords": ["tag"],
+  "triggerWords": ["trigger word"]
+}
+```
+
+- Success: 201 Created with the stored note object.
+- Errors: 400 validation_error for missing `uid`; 503 notes_store_error for Firestore issues.
+
+### GET /notes/<note_id>?uid=<uid>
+- Description: Fetch a single note owned by the user.
+- Errors:
+  - 400 validation_error if `uid` missing.
+  - 403 forbidden if the note belongs to another user.
+  - 404 not_found if no note exists with that id.
+
+### PATCH /notes/<note_id>
+- Description: Update note fields. Supported keys: `title`, `content` (or `excerpt`), `keywords`, `triggerWords`.
+- Request JSON body:
+
+```json
+{
+  "uid": "firebase-uid",
+  "title": "Updated title",
+  "content": "Updated body",
+  "keywords": [],
+  "triggerWords": ["new trigger"]
+}
+```
+
+- Success: 200 OK with updated note object.
+- Errors: same as GET plus 400 validation_error when no updatable fields supplied.
+
+### DELETE /notes/<note_id>
+- Description: Delete a note owned by the user.
+- Request: provide `uid` in the JSON body or as a query parameter.
+- Success: 204 No Content.
+- Errors: 400 validation_error, 403 forbidden, 404 not_found, 503 notes_store_error.
+
+### GET /notes/search
+- Description: Search a user's notes using free text, trigger words, and/or keywords.
+- Query parameters:
+  - `uid` (required).
+  - `q` (optional) — substring search across title, content, keywords, trigger words.
+  - `trigger` / `triggerWords` (optional, repeatable) — match trigger words case-insensitively.
+  - `keyword` / `keywords` (optional, repeatable) — match keywords case-insensitively.
+  - `limit` (optional, max 200) — number of items to return (default 50).
+- Success: 200 OK with `{ "items": [ ... ] }` sorted by most recently updated.
+- Errors: 400 validation_error for missing `uid` or malformed `limit`; 503 notes_store_error on Firestore failure.
+
+The chat pipeline automatically pulls notes whose trigger words appear in the latest user message and injects them into the Gemini prompt, allowing the assistant to answer with personal context when appropriate.
+
+-------------------------------------------------------------------------------
+
 Developer examples (PowerShell / curl)
 
 Create a chat (POST /chats):

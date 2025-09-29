@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../models/note.dart';
+
 class ZenNotesPanel extends StatefulWidget {
   final List<Note> notes;
   final Note? selectedNote;
+  final bool isLoading;
   final VoidCallback? onCreate;
   final ValueChanged<Note>? onNoteSelected;
   final ValueChanged<Note>? onSave; // save/update note
@@ -10,7 +13,18 @@ class ZenNotesPanel extends StatefulWidget {
   final VoidCallback? onCloseNote;
   final VoidCallback? onClosePanel;
 
-  const ZenNotesPanel({super.key, required this.notes, this.selectedNote, this.onCreate, this.onNoteSelected, this.onSave, this.onDelete, this.onCloseNote, this.onClosePanel});
+  const ZenNotesPanel({
+    super.key,
+    required this.notes,
+    this.selectedNote,
+    this.isLoading = false,
+    this.onCreate,
+    this.onNoteSelected,
+    this.onSave,
+    this.onDelete,
+    this.onCloseNote,
+    this.onClosePanel,
+  });
 
   @override
   State<ZenNotesPanel> createState() => _ZenNotesPanelState();
@@ -54,7 +68,7 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
     if (_query.trim().isEmpty) return source;
     final q = _query.toLowerCase();
     return source.where((n) {
-      return n.title.toLowerCase().contains(q) || n.excerpt.toLowerCase().contains(q);
+      return n.title.toLowerCase().contains(q) || n.content.toLowerCase().contains(q);
     }).toList();
   }
 
@@ -95,6 +109,10 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
               ],
             ),
             const SizedBox(height: 12),
+            if (widget.isLoading) ...[
+              const LinearProgressIndicator(minHeight: 2),
+              const SizedBox(height: 12),
+            ],
             // cleaner search box: filled TextField with rounded border and subtle shadow
             Material(
               elevation: 2,
@@ -172,7 +190,7 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
                                               Text(n.title, style: theme.textTheme.titleMedium),
                                               const SizedBox(height: 6),
                                               Text(
-                                                n.excerpt.isEmpty ? 'No content yet' : n.excerpt,
+                                                n.content.isEmpty ? 'No content yet' : n.content,
                                                 style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor),
                                                 maxLines: 2,
                                                 overflow: TextOverflow.ellipsis,
@@ -185,7 +203,7 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
                                           mainAxisSize: MainAxisSize.min,
                                           crossAxisAlignment: CrossAxisAlignment.end,
                                           children: [
-                                            Text(_formatTime(n.updated), style: theme.textTheme.bodySmall),
+                                            Text(_formatTime(n.updatedAt), style: theme.textTheme.bodySmall),
                                             const SizedBox(height: 8),
                                             PopupMenuButton<String>(
                                                                       itemBuilder: (ctx) => [
@@ -198,9 +216,9 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
                                                                           setState(() {
                                                                             _editing = true;
                                                                             _titleCtrl.text = n.title;
-                                                                            _excerptCtrl.text = n.excerpt;
+                                                                            _excerptCtrl.text = n.content;
                                                                             _keywords = List.from(n.keywords);
-                                                                            _triggers = List.from(n.triggerwords);
+                                                                            _triggers = List.from(n.triggerWords);
                                                                             widget.onNoteSelected?.call(n);
                                                                           });
                                                                         } else if (v == 'delete') {
@@ -242,7 +260,7 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
             ],
           ),
           const SizedBox(height: 8),
-          Text(_formatTime(n.updated), style: theme.textTheme.bodySmall),
+          Text(_formatTime(n.updatedAt), style: theme.textTheme.bodySmall),
           const SizedBox(height: 12),
           TextField(controller: _excerptCtrl, maxLines: 6, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Write note content...')),
           const SizedBox(height: 12),
@@ -297,7 +315,13 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
             children: [
               ElevatedButton(onPressed: () {
                 // save changes
-                final updated = Note(id: n.id, title: _titleCtrl.text.trim(), excerpt: _excerptCtrl.text.trim(), updated: DateTime.now(), keywords: List.from(_keywords), triggerwords: List.from(_triggers));
+                final newTitle = _titleCtrl.text.trim();
+                final updated = n.copyWith(
+                  title: newTitle.isEmpty ? 'New note' : newTitle,
+                  content: _excerptCtrl.text.trim(),
+                  keywords: List<String>.from(_keywords),
+                  triggerWords: List<String>.from(_triggers),
+                );
                 widget.onSave?.call(updated);
                 setState(() => _editing = false);
               }, child: const Text('Save')),
@@ -325,9 +349,9 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
                     setState(() {
                       _editing = true;
                       _titleCtrl.text = n.title;
-                      _excerptCtrl.text = n.excerpt;
+                      _excerptCtrl.text = n.content;
                       _keywords = List.from(n.keywords);
-                      _triggers = List.from(n.triggerwords);
+                      _triggers = List.from(n.triggerWords);
                       widget.onNoteSelected?.call(n);
                     });
                   },
@@ -339,20 +363,20 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
           ],
         ),
         const SizedBox(height: 8),
-        Text(_formatTime(n.updated), style: theme.textTheme.bodySmall),
+  Text(_formatTime(n.updatedAt), style: theme.textTheme.bodySmall),
         const SizedBox(height: 16),
-        Expanded(child: SingleChildScrollView(child: Text(n.excerpt.isEmpty ? 'No content yet.' : n.excerpt, style: theme.textTheme.bodyLarge))),
+  Expanded(child: SingleChildScrollView(child: Text(n.content.isEmpty ? 'No content yet.' : n.content, style: theme.textTheme.bodyLarge))),
         const SizedBox(height: 12),
         if (n.keywords.isNotEmpty) ...[
           Text('Keywords', style: theme.textTheme.titleSmall),
           const SizedBox(height: 6),
           Wrap(spacing: 8, children: n.keywords.map((k) => Chip(label: Text(k))).toList()),
         ],
-        if (n.triggerwords.isNotEmpty) ...[
+        if (n.triggerWords.isNotEmpty) ...[
           const SizedBox(height: 8),
           Text('Trigger words', style: theme.textTheme.titleSmall),
           const SizedBox(height: 6),
-          Wrap(spacing: 8, children: n.triggerwords.map((t) => Chip(label: Text(t))).toList()),
+          Wrap(spacing: 8, children: n.triggerWords.map((t) => Chip(label: Text(t))).toList()),
         ],
       ],
     );
@@ -380,17 +404,4 @@ class _ZenNotesPanelState extends State<ZenNotesPanel> {
     if (diff.inHours < 24) return '${diff.inHours} h ago';
     return '${diff.inDays} d ago';
   }
-}
-
-class Note {
-  final String id;
-  String title;
-  String excerpt;
-  DateTime updated;
-  List<String> keywords;
-  List<String> triggerwords;
-
-  Note({required this.id, required this.title, required this.excerpt, required this.updated, List<String>? keywords, List<String>? triggerwords})
-      : keywords = keywords ?? [],
-        triggerwords = triggerwords ?? [];
 }
