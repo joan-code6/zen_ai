@@ -591,6 +591,7 @@ class _ZenHomePageState extends State<ZenHomePage> {
                             )
                             .toList(),
                         onRemoveComposerAttachment: _removeComposerAttachment,
+                        isTypingInChat: _appState.isTypingInChat,
                       ),
                     ),
 

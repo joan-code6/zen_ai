@@ -68,3 +68,56 @@ desktop/android/app/profile
 desktop/android/app/release
 backend/.env
 backend/uploads/
+
+
+# Desktop specific ignores for Flutter
+
+
+# Miscellaneous
+phone/*.class
+phone/*.log
+phone/*.pyc
+phone/*.swp
+phone/.DS_Store
+phone/.atom/
+phone/.build/
+phone/.buildlog/
+phone/.history
+phone/.svn/
+phone/.swiftpm/
+phone/migrate_working_dir/
+ 
+# IntelliJ related
+phone/*.iml
+phone/*.ipr
+phone/*.iws
+phone/.idea/
+ 
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+ 
+# Flutter/Dart/Pub related
+phone/**/doc/api/
+phone/**/ios/Flutter/.last_build_id
+phone/.dart_tool/
+phone/.flutter-plugins-dependencies
+phone/.pub-cache/
+phone/.pub/
+phone/build/
+phone/coverage/
+
+# Symbolication related
+phone/app.*.symbols
+ 
+# Obfuscation related
+phone/app.*.map.json
+ 
+# Android Studio will place build artifacts here
+phone/android/app/debug
+phone/android/app/profile
+phone/android/app/release
+phone/.env
+phone/uploads/
+phone/*

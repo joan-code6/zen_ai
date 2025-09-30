@@ -26,6 +26,7 @@ class ZenWorkspace extends StatelessWidget {
   final void Function(String attachmentId)? onRemoveComposerAttachment;
   final bool isSendingMessage;
   final bool isChatLoading;
+  final bool Function(String chatId)? isTypingInChat;
 
   const ZenWorkspace({
     super.key,
@@ -42,6 +43,7 @@ class ZenWorkspace extends StatelessWidget {
     this.onRemoveComposerAttachment,
     this.isSendingMessage = false,
     this.isChatLoading = false,
+    this.isTypingInChat,
   });
 
   @override
@@ -72,6 +74,7 @@ class ZenWorkspace extends StatelessWidget {
             isSending: isSendingMessage,
             isLoading: isChatLoading || isPlaceholder,
             onUploadFile: onUploadFile,
+            isTyping: isTypingInChat != null ? isTypingInChat!(resolvedChat.id) : false,
           ),
         ),
       );
@@ -126,6 +129,7 @@ class _ChatView extends StatefulWidget {
   final VoidCallback? onCreate;
   final bool isSending;
   final bool isLoading;
+  final bool isTyping;
   final Future<ChatFile?> Function(String chatId)? onUploadFile;
 
   const _ChatView({
@@ -134,6 +138,7 @@ class _ChatView extends StatefulWidget {
     this.onCreate,
     this.isSending = false,
     this.isLoading = false,
+    this.isTyping = false,
     this.onUploadFile,
   });
 
@@ -266,8 +271,12 @@ class _ChatViewState extends State<_ChatView> {
                   )
                 : ListView.builder(
                     controller: _scroll,
-                    itemCount: messages.length,
+                    itemCount: messages.length + (widget.isTyping ? 1 : 0),
                     itemBuilder: (context, i) {
+                      // Show typing indicator as the last item
+                      if (i == messages.length && widget.isTyping) {
+                        return const _TypingIndicator();
+                      }
                       final m = messages[i];
                       final bg = m.fromUser
                           ? colorScheme.primary
@@ -878,6 +887,131 @@ class _RoundActionButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TypingIndicator extends StatefulWidget {
+  const _TypingIndicator();
+
+  @override
+  State<_TypingIndicator> createState() => _TypingIndicatorState();
+}
+
+class _TypingIndicatorState extends State<_TypingIndicator>
+    with TickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation1;
+  late Animation<double> _animation2;
+  late Animation<double> _animation3;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+
+    _animation1 = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.0, 0.4, curve: Curves.easeInOut),
+      ),
+    );
+
+    _animation2 = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.2, 0.6, curve: Curves.easeInOut),
+      ),
+    );
+
+    _animation3 = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.4, 0.8, curve: Curves.easeInOut),
+      ),
+    );
+
+    _controller.repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final bg = colorScheme.surfaceVariant;
+    final fg = colorScheme.onSurface.withOpacity(0.6);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        children: [
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _AnimatedDot(animation: _animation1, color: fg),
+                  const SizedBox(width: 4),
+                  _AnimatedDot(animation: _animation2, color: fg),
+                  const SizedBox(width: 4),
+                  _AnimatedDot(animation: _animation3, color: fg),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnimatedDot extends StatelessWidget {
+  final Animation<double> animation;
+  final Color color;
+
+  const _AnimatedDot({
+    required this.animation,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: 0.5 + (animation.value * 0.5),
+          child: Opacity(
+            opacity: 0.3 + (animation.value * 0.7),
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

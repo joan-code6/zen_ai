@@ -114,6 +114,96 @@ def _get_client(api_key: str) -> genai.Client:
     return client
 
 
+def _start_stream(
+    client: genai.Client,
+    contents: list[types.Content],
+    model: str,
+    timeout: int,
+) -> Any:
+    last_exc: Exception | None = None
+
+    def _try_call(host: Any) -> Any | None:
+        nonlocal last_exc
+        if host is None:
+            return None
+        method_names = (
+            "stream_generate_content",
+            "generate_content_stream",
+        )
+
+        for method_name in method_names:
+            method = getattr(host, method_name, None)
+            if method is None:
+                continue
+
+            for kwargs in (
+                {"request_options": {"timeout": timeout}},
+                {"timeout": timeout},
+                {},
+            ):
+                try:
+                    return method(model=model, contents=contents, **kwargs)
+                except TypeError as exc:
+                    last_exc = exc
+                    continue
+                except Exception as exc:
+                    last_exc = exc
+                    raise GeminiAPIError(str(exc)) from exc
+
+        generate_method = getattr(host, "generate_content", None)
+        if callable(generate_method):
+            for kwargs in (
+                {"stream": True, "request_options": {"timeout": timeout}},
+                {"stream": True, "timeout": timeout},
+                {"stream": True},
+            ):
+                try:
+                    result = generate_method(model=model, contents=contents, **kwargs)
+                except TypeError as exc:
+                    last_exc = exc
+                    continue
+                except Exception as exc:
+                    last_exc = exc
+                    raise GeminiAPIError(str(exc)) from exc
+                if result is None:
+                    continue
+                if hasattr(result, "__iter__") or hasattr(result, "__aiter__") or hasattr(result, "__enter__"):
+                    return result
+                last_exc = TypeError("generate_content(stream=True) did not return a stream")
+        return None
+
+    stream_ctx = _try_call(getattr(client, "models", None))
+    if stream_ctx is None:
+        stream_ctx = _try_call(getattr(client, "responses", None))
+
+    if stream_ctx is None:
+        message = (
+            "Gemini client does not support streaming responses."
+            if last_exc is None
+            else f"Gemini client does not support streaming responses ({last_exc})."
+        )
+        raise GeminiAPIError(message)
+
+    return stream_ctx
+
+
+def stream_reply(
+    messages: Sequence[dict[str, Any]],
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+    timeout: int = 60,
+) -> Any:
+    """Open a streaming Gemini response for the provided conversation history."""
+
+    client = _get_client(api_key)
+
+    contents = _format_messages(messages, client)
+    if not contents:
+        raise GeminiAPIError("At least one message with content is required.")
+
+    return _start_stream(client, contents, model, timeout)
+
+
 def generate_reply(
     messages: Sequence[dict[str, Any]],
     api_key: str,

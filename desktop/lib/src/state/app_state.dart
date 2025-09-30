@@ -72,6 +72,7 @@ const String _desktopGoogleClientSecret = String.fromEnvironment(
 const List<String> _googleOAuthScopes = <String>['openid', 'email', 'profile'];
 
 class AppState extends ChangeNotifier {
+  static const _pendingAssistantPrefix = 'pending-assistant-';
   AuthSession? _session;
   String? _displayName;
   String? _photoUrl;
@@ -122,6 +123,16 @@ class AppState extends ChangeNotifier {
   }
 
   bool isChatLoading(String chatId) => _chatLoading[chatId] ?? false;
+
+  bool isTypingInChat(String chatId) {
+    final chat = _chatCache[chatId];
+    if (chat == null) {
+      return false;
+    }
+    return chat.messages.any(
+      (message) => message.id.startsWith(_pendingAssistantPrefix),
+    );
+  }
 
   String? consumeError() {
     final error = _lastError;
@@ -935,6 +946,177 @@ class AppState extends ChangeNotifier {
 
     _isSendingMessage = true;
     notifyListeners();
+
+    ChatMessage? streamedUserMessage;
+    ChatMessage? streamedAssistantMessage;
+    ChatMessage? pendingAssistant;
+    int? pendingAssistantIndex;
+    String? streamError;
+    var latestAssistantText = '';
+  final pendingAssistantId = '$_pendingAssistantPrefix${DateTime.now().microsecondsSinceEpoch}';
+
+    void ensureChatPlaceholder() {
+      if (_chatCache.containsKey(chatId)) {
+        return;
+      }
+      final placeholder = Chat(
+        id: chatId,
+        uid: currentUid,
+        messages: const [],
+        files: const [],
+      );
+      _upsertChat(placeholder, moveToTop: false);
+    }
+
+    void updateChatMessages(List<ChatMessage> messages, {required bool moveToTop}) {
+      final chat = _chatCache[chatId];
+      if (chat == null) return;
+      final updated = chat.copyWith(
+        messages: messages,
+        updatedAt: DateTime.now(),
+      );
+      _upsertChat(updated, moveToTop: moveToTop);
+      notifyListeners();
+    }
+
+    void appendUser(ChatMessage message) {
+      ensureChatPlaceholder();
+      final chat = _chatCache[chatId];
+      if (chat == null) return;
+      final messages = List<ChatMessage>.from(chat.messages);
+      if (messages.any((m) => m.id == message.id)) {
+        return;
+      }
+      messages.add(message);
+      updateChatMessages(messages, moveToTop: true);
+    }
+
+    void updateAssistantDraft(String text) {
+      if (text.isEmpty) return;
+      ensureChatPlaceholder();
+      final chat = _chatCache[chatId];
+      if (chat == null) return;
+      final messages = List<ChatMessage>.from(chat.messages);
+      final now = DateTime.now();
+      if (pendingAssistant == null) {
+        pendingAssistant = ChatMessage(
+          id: pendingAssistantId,
+          role: 'assistant',
+          content: text,
+          createdAt: now,
+        );
+        pendingAssistantIndex = messages.length;
+        messages.add(pendingAssistant!);
+      } else {
+        pendingAssistant = pendingAssistant!.copyWith(
+          content: text,
+          createdAt: now,
+        );
+        if (pendingAssistantIndex != null &&
+            pendingAssistantIndex! < messages.length &&
+            messages[pendingAssistantIndex!].id == pendingAssistantId) {
+          messages[pendingAssistantIndex!] = pendingAssistant!;
+        } else {
+          pendingAssistantIndex = messages.length;
+          messages.add(pendingAssistant!);
+        }
+      }
+      updateChatMessages(messages, moveToTop: false);
+    }
+
+    void replaceAssistant(ChatMessage message) {
+      ensureChatPlaceholder();
+      final chat = _chatCache[chatId];
+      if (chat == null) return;
+      final messages = List<ChatMessage>.from(chat.messages);
+      if (messages.any((m) => m.id == message.id)) {
+        pendingAssistant = null;
+        pendingAssistantIndex = null;
+        return;
+      }
+      if (pendingAssistant != null &&
+          pendingAssistantIndex != null &&
+          pendingAssistantIndex! < messages.length &&
+          messages[pendingAssistantIndex!].id == pendingAssistantId) {
+        messages[pendingAssistantIndex!] = message;
+      } else {
+        messages.add(message);
+      }
+      pendingAssistant = null;
+      pendingAssistantIndex = null;
+      updateChatMessages(messages, moveToTop: true);
+    }
+
+    void removePendingAssistant() {
+      final chat = _chatCache[chatId];
+      if (chat != null && pendingAssistant != null && pendingAssistantIndex != null) {
+        final messages = List<ChatMessage>.from(chat.messages);
+        if (pendingAssistantIndex! < messages.length &&
+            messages[pendingAssistantIndex!].id == pendingAssistantId) {
+          messages.removeAt(pendingAssistantIndex!);
+          updateChatMessages(messages, moveToTop: false);
+        }
+      }
+      pendingAssistant = null;
+      pendingAssistantIndex = null;
+    }
+
+    void applyChatTitle(String? title) {
+      if (title == null || title.isEmpty) return;
+      final chat = _chatCache[chatId];
+      if (chat == null) return;
+      final updated = chat.copyWith(
+        title: title,
+        updatedAt: DateTime.now(),
+      );
+      _upsertChat(updated, moveToTop: true);
+      notifyListeners();
+    }
+
+    void handleEvent(StreamedMessageEvent event) {
+      switch (event.type) {
+        case 'user_message':
+          final payload = event.data['message'];
+          if (payload is Map<String, dynamic>) {
+            final message = ChatMessage.fromJson(payload);
+            streamedUserMessage = message;
+            appendUser(message);
+          }
+          break;
+        case 'token':
+          final aggregated = event.text ?? event.data['text']?.toString();
+          if (aggregated != null && aggregated.isNotEmpty) {
+            latestAssistantText = aggregated;
+            updateAssistantDraft(latestAssistantText);
+          } else {
+            final token = event.token;
+            if (token != null && token.isNotEmpty) {
+              latestAssistantText += token;
+              updateAssistantDraft(latestAssistantText);
+            }
+          }
+          break;
+        case 'assistant_message':
+          final payload = event.data['message'];
+          if (payload is Map<String, dynamic>) {
+            final message = ChatMessage.fromJson(payload);
+            latestAssistantText = message.content;
+            streamedAssistantMessage = message;
+            replaceAssistant(message);
+          }
+          break;
+        case 'chat_title':
+          applyChatTitle(event.data['title']?.toString());
+          break;
+        case 'error':
+          streamError = event.data['message']?.toString() ?? 'Streaming error';
+          removePendingAssistant();
+          break;
+        default:
+          break;
+      }
+    }
+
     try {
       final result = await BackendService.sendMessage(
         chatId: chatId,
@@ -942,27 +1124,41 @@ class AppState extends ChangeNotifier {
         content: hasContent ? trimmedContent : null,
         role: role,
         fileIds: fileIds.isEmpty ? null : fileIds,
+        onEvent: handleEvent,
       );
-      final existing = _chatCache[chatId];
-      if (existing != null) {
-        final messages = List<ChatMessage>.from(existing.messages)
-          ..add(result.userMessage);
-        if (result.assistantMessage != null) {
-          messages.add(result.assistantMessage!);
-        }
-        final updatedChat = existing.copyWith(
-          messages: messages,
-          updatedAt: DateTime.now(),
+      if (streamedUserMessage == null) {
+        appendUser(result.userMessage);
+        streamedUserMessage = result.userMessage;
+      }
+
+      final assistantFromResult = result.assistantMessage;
+      if (assistantFromResult != null) {
+        streamedAssistantMessage = assistantFromResult;
+        latestAssistantText = assistantFromResult.content;
+        replaceAssistant(assistantFromResult);
+      } else if (streamedAssistantMessage == null && latestAssistantText.isNotEmpty) {
+        final fallback = ChatMessage(
+          id: 'assistant-${DateTime.now().microsecondsSinceEpoch}',
+          role: 'assistant',
+          content: latestAssistantText,
         );
-        _upsertChat(updatedChat, moveToTop: true);
-      } else {
+        streamedAssistantMessage = fallback;
+        replaceAssistant(fallback);
+      }
+
+      if (_chatCache[chatId] == null) {
         await getChat(chatId);
       }
+
       return result;
     } on BackendException catch (e) {
-      _setError(e.message);
+      removePendingAssistant();
+      final message = streamError ?? e.message;
+      _setError(message);
     } catch (e) {
-      _setError('Failed to send message: $e');
+      removePendingAssistant();
+      final message = streamError ?? 'Failed to send message: $e';
+      _setError(message);
     } finally {
       _isSendingMessage = false;
       notifyListeners();

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Iterable
 from uuid import uuid4
 
-from flask import Blueprint, current_app, jsonify, request, send_file, url_for
+from flask import Blueprint, Response, current_app, jsonify, request, send_file, url_for
+from flask import stream_with_context
 from firebase_admin import firestore as firebase_firestore
 from google.api_core import exceptions as google_exceptions
 from werkzeug.utils import secure_filename
@@ -14,7 +16,9 @@ import logging
 import re
 import mimetypes
 
-from ..ai.gemini import GeminiAPIError, generate_reply, generate_chat_title
+import json
+
+from ..ai.gemini import GeminiAPIError, generate_reply, generate_chat_title, stream_reply
 from ..firebase import get_firestore_client
 from ..notes.service import find_notes_for_text, format_note_for_context
 
@@ -22,6 +26,47 @@ chats_bp = Blueprint("chats", __name__, url_prefix="/chats")
 log = logging.getLogger(__name__)
 
 DEFAULT_INLINE_ATTACHMENT_MAX_BYTES = 350_000
+
+
+def _sse_message(payload: dict[str, Any], event: str | None = None) -> str:
+    body = json.dumps(payload, ensure_ascii=False)
+    lines: list[str] = []
+    if event:
+        lines.append(f"event: {event}")
+    for line in body.splitlines() or [""]:
+        lines.append(f"data: {line}")
+    return "\n".join(lines) + "\n\n"
+
+
+def _extract_text_from_event(event: Any) -> str:
+    text = getattr(event, "text", None)
+    if isinstance(text, str) and text:
+        return text
+
+    delta = getattr(event, "delta", None)
+    delta_text = getattr(delta, "text", None) if delta is not None else None
+    if isinstance(delta_text, str) and delta_text:
+        return delta_text
+    if isinstance(delta, dict):
+        maybe = delta.get("text")
+        if isinstance(maybe, str) and maybe:
+            return maybe
+
+    candidates = getattr(event, "candidates", None)
+    if isinstance(candidates, (list, tuple)) and candidates:
+        candidate = candidates[0]
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) if content is not None else None
+        texts: list[str] = []
+        if isinstance(parts, (list, tuple)):
+            for part in parts:
+                part_text = getattr(part, "text", None)
+                if isinstance(part_text, str) and part_text:
+                    texts.append(part_text)
+        if texts:
+            return "".join(texts)
+
+    return ""
 
 
 def _parse_json_body() -> dict[str, Any]:
@@ -915,6 +960,9 @@ def add_message(chat_id: str) -> tuple[Any, int]:
             HTTPStatus.SERVICE_UNAVAILABLE,
         )
 
+    accept_header = (request.headers.get("Accept") or "").lower()
+    wants_stream = bool(payload.get("stream")) or "text/event-stream" in accept_header
+
     history_query = messages_ref.order_by("createdAt")
     try:
         history_docs = list(history_query.stream())
@@ -993,6 +1041,144 @@ def add_message(chat_id: str) -> tuple[Any, int]:
             "Respond in the same language as the most recent user message when it exists. If the language is unclear, ask the user to clarify before answering."
         )
     history_messages.append({"role": "system", "content": language_instruction})
+
+    if wants_stream:
+        serialized_user = _serialize_message(user_message_ref.id, user_message_data)
+
+        def event_stream():
+            yield _sse_message({"type": "user_message", "message": serialized_user})
+
+            try:
+                stream_ctx = stream_reply(history_messages, api_key=gemini_api_key)
+            except GeminiAPIError as exc:
+                yield _sse_message({"type": "error", "message": str(exc), "error": "ai_error"})
+                return
+
+            aggregated_chunks: list[str] = []
+            final_response: Any | None = None
+            manager = stream_ctx if hasattr(stream_ctx, "__enter__") else nullcontext(stream_ctx)
+
+            try:
+                with manager as stream:
+                    for event in stream:
+                        text_chunk = _extract_text_from_event(event)
+                        if not text_chunk:
+                            continue
+                        aggregated_chunks.append(text_chunk)
+                        yield _sse_message(
+                            {
+                                "type": "token",
+                                "token": text_chunk,
+                                "text": "".join(aggregated_chunks),
+                            }
+                        )
+
+                    get_final = getattr(stream, "get_final_response", None)
+                    if callable(get_final):
+                        final_response = get_final()
+            except GeminiAPIError as exc:
+                yield _sse_message({"type": "error", "message": str(exc), "error": "ai_error"})
+                return
+            except Exception as exc:  # pragma: no cover - defensive logging
+                log.exception("Gemini streaming error: %s", exc)
+                yield _sse_message(
+                    {
+                        "type": "error",
+                        "message": "Gemini streaming failed.",
+                        "detail": str(exc),
+                        "error": "streaming_error",
+                    }
+                )
+                return
+
+            final_text = ""
+            if final_response is not None:
+                final_text = (getattr(final_response, "text", "") or "").strip()
+            if not final_text:
+                final_text = "".join(aggregated_chunks).strip()
+
+            if not final_text:
+                yield _sse_message(
+                    {
+                        "type": "error",
+                        "message": "Gemini API returned an empty response.",
+                        "error": "ai_empty",
+                    }
+                )
+                return
+
+            created_at = _now()
+
+            ai_message_data = {
+                "uid": uid,
+                "role": "assistant",
+                "content": final_text,
+                "createdAt": created_at,
+            }
+
+            try:
+                ai_message_ref = messages_ref.document()
+                ai_message_ref.set(ai_message_data)
+                chat_ref.update({"updatedAt": created_at})
+            except google_exceptions.PermissionDenied as exc:
+                yield _sse_message(
+                    {
+                        "type": "error",
+                        "message": "Unable to store assistant message.",
+                        "detail": str(exc),
+                        "error": "firestore_permission",
+                    }
+                )
+                return
+            except google_exceptions.GoogleAPICallError as exc:
+                yield _sse_message(
+                    {
+                        "type": "error",
+                        "message": "Unable to store assistant message.",
+                        "detail": str(exc),
+                        "error": "firestore_unavailable",
+                    }
+                )
+                return
+
+            serialized_assistant = _serialize_message(ai_message_ref.id, ai_message_data)
+            yield _sse_message({"type": "assistant_message", "message": serialized_assistant})
+
+            chat_title = (chat_data.get("title") or "").strip()
+            default_titles = {"", "new chat"}
+            should_update_title = chat_title.lower() in default_titles or chat_title == content
+            updated_title: str | None = None
+
+            if should_update_title:
+                user_prompt_for_title = user_message_data.get("content", "") or latest_user_text
+                try:
+                    updated_title = generate_chat_title(
+                        user_message=user_prompt_for_title,
+                        assistant_message=final_text,
+                        api_key=gemini_api_key,
+                    )
+                except GeminiAPIError as exc:
+                    log.warning("Unable to generate chat title: %s", exc)
+
+            if updated_title:
+                try:
+                    chat_ref.update({
+                        "title": updated_title,
+                        "updatedAt": created_at,
+                    })
+                    chat_data["title"] = updated_title
+                    yield _sse_message({"type": "chat_title", "title": updated_title})
+                except google_exceptions.PermissionDenied as exc:
+                    log.warning("Failed to persist chat title: %s", exc)
+                except google_exceptions.GoogleAPICallError as exc:
+                    log.warning("Failed to persist chat title: %s", exc)
+
+            yield _sse_message({"type": "done"})
+
+        response = Response(stream_with_context(event_stream()), mimetype="text/event-stream")
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["X-Accel-Buffering"] = "no"
+        return response
 
     try:
         ai_reply = generate_reply(history_messages, api_key=gemini_api_key)

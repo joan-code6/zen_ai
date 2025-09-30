@@ -40,6 +40,22 @@ class ChatMessage {
         'createdAt': createdAt.toUtc().toIso8601String(),
         'fileIds': fileIds,
       };
+
+  ChatMessage copyWith({
+    String? id,
+    String? role,
+    String? content,
+    DateTime? createdAt,
+    List<String>? fileIds,
+  }) {
+    return ChatMessage(
+      id: id ?? this.id,
+      role: role ?? this.role,
+      content: content ?? this.content,
+      createdAt: createdAt ?? this.createdAt,
+      fileIds: fileIds ?? List<String>.from(this.fileIds),
+    );
+  }
 }
 
 class ChatFile {

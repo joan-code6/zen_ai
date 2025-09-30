@@ -25,6 +25,19 @@ class BackendException implements Exception {
   String toString() => 'BackendException($statusCode, $code, $message)';
 }
 
+class StreamedMessageEvent {
+  final String type;
+  final Map<String, dynamic> data;
+
+  const StreamedMessageEvent({
+    required this.type,
+    required this.data,
+  });
+
+  String? get token => data['token']?.toString();
+  String? get text => data['text']?.toString();
+}
+
 class BackendService {
   static const String _gistUrl =
       'https://gist.githubusercontent.com/joan-code6/8b995d800205dbb119842fa588a2bd2c/raw/zen.json';
@@ -313,35 +326,214 @@ class BackendService {
     String? content,
     String role = 'user',
     List<String>? fileIds,
+    void Function(StreamedMessageEvent event)? onEvent,
   }) async {
     final payload = <String, dynamic>{
       'uid': uid,
       'role': role,
       if (content != null && content.isNotEmpty) 'content': content,
       if (fileIds != null && fileIds.isNotEmpty) 'fileIds': fileIds,
+      'stream': true,
     };
-    final data = await _post('/chats/$chatId/messages', payload);
-    if (data is Map<String, dynamic>) {
-      final user = data['userMessage'];
-      final assistant = data['assistantMessage'];
-      return MessageSendResult(
-        userMessage: user is Map<String, dynamic>
-            ? ChatMessage.fromJson(user)
-            : ChatMessage(
-                id: DateTime.now().toIso8601String(),
-                role: role,
-                content: content ?? '',
-                fileIds: fileIds ?? const [],
-              ),
-        assistantMessage: assistant is Map<String, dynamic>
-            ? ChatMessage.fromJson(assistant)
-            : null,
-        rawResponse: data,
+    return await _sendMessageStream(
+      chatId: chatId,
+      payload: payload,
+      onEvent: onEvent,
+      fallbackRole: role,
+      fallbackContent: content,
+      fallbackFileIds: fileIds,
+    );
+  }
+
+  static Future<MessageSendResult> _sendMessageStream({
+    required String chatId,
+    required Map<String, dynamic> payload,
+    void Function(StreamedMessageEvent event)? onEvent,
+    required String fallbackRole,
+    String? fallbackContent,
+    List<String>? fallbackFileIds,
+  }) async {
+    final uri = await _buildUri('/chats/$chatId/messages');
+    final request = http.Request('POST', uri)
+      ..headers.addAll({
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      })
+      ..body = jsonEncode(payload);
+
+    final streamedResponse = await _http.send(request);
+
+    if (streamedResponse.statusCode >= 400) {
+      final errorResponse = await http.Response.fromStream(streamedResponse);
+      _decodeResponse(errorResponse); // will throw a BackendException
+      throw BackendException(
+        statusCode: streamedResponse.statusCode,
+        message: 'Streaming request failed with status ${streamedResponse.statusCode}',
       );
     }
-    throw BackendException(
-      statusCode: 500,
-      message: 'Invalid message response',
+
+    final events = <Map<String, dynamic>>[];
+    final rawResponse = <String, dynamic>{'streamed': true, 'events': events};
+    ChatMessage? userMessage;
+    ChatMessage? assistantMessage;
+    var latestAssistantText = '';
+    var buffer = '';
+
+    void applyEvent(StreamedMessageEvent event) {
+      events.add(event.data);
+      onEvent?.call(event);
+
+      final data = event.data;
+      switch (event.type) {
+        case 'user_message':
+          final message = data['message'];
+          if (message is Map<String, dynamic>) {
+            userMessage = ChatMessage.fromJson(message);
+            rawResponse['userMessage'] = message;
+          }
+          break;
+        case 'token':
+          final fullText = data['text']?.toString();
+          if (fullText != null && fullText.isNotEmpty) {
+            latestAssistantText = fullText;
+          } else {
+            final token = data['token']?.toString();
+            if (token != null && token.isNotEmpty) {
+              latestAssistantText += token;
+            }
+          }
+          break;
+        case 'assistant_message':
+          final message = data['message'];
+          if (message is Map<String, dynamic>) {
+            assistantMessage = ChatMessage.fromJson(message);
+            latestAssistantText = assistantMessage!.content;
+            rawResponse['assistantMessage'] = message;
+          }
+          break;
+        case 'chat_title':
+          if (data['title'] != null) {
+            rawResponse['chatTitle'] = data['title'];
+          }
+          break;
+        case 'done':
+          rawResponse['done'] = true;
+          break;
+        case 'error':
+          final message = data['message']?.toString() ?? 'Streaming error';
+          final code = data['error']?.toString();
+          throw BackendException(
+            statusCode: streamedResponse.statusCode,
+            message: message,
+            code: code,
+            details: data,
+          );
+        default:
+          break;
+      }
+    }
+
+    final stream = streamedResponse.stream.transform(const Utf8Decoder());
+    await for (final chunk in stream) {
+      buffer += chunk;
+      buffer = buffer.replaceAll('\r', '');
+      while (true) {
+        final separator = buffer.indexOf('\n\n');
+        if (separator == -1) {
+          break;
+        }
+        final rawEvent = buffer.substring(0, separator);
+        buffer = buffer.substring(separator + 2);
+        final event = _parseSseEvent(rawEvent);
+        if (event == null) {
+          continue;
+        }
+        applyEvent(event);
+      }
+    }
+
+    final remainder = buffer.replaceAll('\r', '').trim();
+    if (remainder.isNotEmpty) {
+      final event = _parseSseEvent(remainder);
+      if (event != null) {
+        applyEvent(event);
+      }
+    }
+
+    final ChatMessage finalUserMessage = userMessage ??
+        ChatMessage(
+          id: 'user-${DateTime.now().microsecondsSinceEpoch}',
+          role: fallbackRole,
+          content: fallbackContent ?? '',
+          fileIds: fallbackFileIds ?? const [],
+        );
+
+    final ChatMessage? finalAssistantMessage;
+    if (assistantMessage != null) {
+      finalAssistantMessage = assistantMessage;
+    } else if (latestAssistantText.isNotEmpty) {
+      finalAssistantMessage = ChatMessage(
+        id: 'assistant-${DateTime.now().microsecondsSinceEpoch}',
+        role: 'assistant',
+        content: latestAssistantText,
+      );
+    } else {
+      finalAssistantMessage = null;
+    }
+
+    if (latestAssistantText.isNotEmpty) {
+      rawResponse['finalText'] = latestAssistantText;
+    }
+    rawResponse['statusCode'] = streamedResponse.statusCode;
+
+    return MessageSendResult(
+      userMessage: finalUserMessage,
+      assistantMessage: finalAssistantMessage,
+      rawResponse: rawResponse,
+    );
+  }
+
+  static StreamedMessageEvent? _parseSseEvent(String rawEvent) {
+    final cleaned = rawEvent.replaceAll('\r', '');
+    String? eventName;
+    final dataLines = <String>[];
+
+    for (final line in cleaned.split('\n')) {
+      if (line.isEmpty) {
+        continue;
+      }
+      if (line.startsWith(':')) {
+        continue;
+      }
+      if (line.startsWith('event:')) {
+        eventName = line.substring(6).trim();
+      } else if (line.startsWith('data:')) {
+        dataLines.add(line.substring(5).trimLeft());
+      }
+    }
+
+    if (dataLines.isEmpty) {
+      return null;
+    }
+
+    final dataText = dataLines.join('\n');
+    if (dataText.isEmpty) {
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(dataText);
+      if (decoded is Map<String, dynamic>) {
+        final type = decoded['type']?.toString() ?? eventName ?? 'message';
+        return StreamedMessageEvent(type: type, data: decoded);
+      }
+    } catch (_) {
+      // ignore parse errors and fall back to raw data
+    }
+
+    return StreamedMessageEvent(
+      type: eventName ?? 'message',
+      data: {'raw': dataText},
     );
   }
 
