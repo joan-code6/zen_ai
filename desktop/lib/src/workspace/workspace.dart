@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/chat.dart';
+import 'markdown_message.dart';
 
 typedef SendMessageCallback =
     Future<void> Function(String message, {List<String> fileIds});
@@ -313,9 +314,10 @@ class _ChatViewState extends State<_ChatView> {
                                       : CrossAxisAlignment.start,
                                   children: [
                                     if (messageText.isNotEmpty)
-                                      Text(
-                                        messageText,
-                                        style: TextStyle(color: fg),
+                                      MarkdownMessage(
+                                        content: messageText,
+                                        textColor: fg,
+                                        fromUser: m.fromUser,
                                       ),
                                     if (attachments.isNotEmpty) ...[
                                       if (messageText.isNotEmpty)
